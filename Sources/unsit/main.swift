@@ -109,7 +109,7 @@ func run() -> Int32 {
     var dirStack: [OutputDirectory?] = [rootDirectory]
     let budget = OutputBudget(opts.limits)
     var fileCount = 0
-    var crcFailures = 0
+    var partialCount = 0
     var skippedBytes = 0
     var errorCount = 0
 
@@ -125,7 +125,10 @@ func run() -> Int32 {
                 do {
                     try MacFileWriter.validate(entry.name)
                     guard let parent = dirStack.last! else { throw MacFileWriter.WriteError(description: "blocked parent directory") }
-                    let dir = try MacFileWriter.createDirectory(in: parent, name: entry.name, entry: entry)
+                    let dir = try parent.create(entry.name)
+                    let issues = MacFileWriter.setMetadata(fd: dir.fd, entry: entry, isDirectory: true)
+                    for issue in issues { warn(issue) }
+                    if !issues.isEmpty { errorCount += 1 }
                     dirStack.append(dir)
                 } catch {
                     warn("failed folder \(entry.name) at offset \(entry.offset): \(error)")
@@ -148,22 +151,28 @@ func run() -> Int32 {
                         parent = try rootDirectory.create(entry.recoveryDirectory)
                         warn("uncertain member at \(entry.offset) recovered as \(entry.recoveryDirectory)/\(entry.name)")
                     } else { parent = trustedParent }
-                    let rsrc = try archive.decompressFork(
+                    let rsrc = archive.recoverFork(
                         method: entry.rsrcMethod, offset: entry.rsrcOffset,
                         compressedLength: entry.rsrcCompressedLength,
-                        uncompressedLength: entry.rsrcUncompressedLength)
-                    let data = try archive.decompressFork(
+                        uncompressedLength: entry.rsrcUncompressedLength, crc: entry.rsrcCRC, verify: !opts.noVerify)
+                    let data = archive.recoverFork(
                         method: entry.dataMethod, offset: entry.dataOffset,
                         compressedLength: entry.dataCompressedLength,
-                        uncompressedLength: entry.dataUncompressedLength)
-
-                    if !opts.noVerify {
-                        crcFailures += verify(entry: entry, rsrc: rsrc, data: data)
+                        uncompressedLength: entry.dataUncompressedLength, crc: entry.dataCRC, verify: !opts.noVerify)
+                    let issues = rsrc.diagnostics.map { "resource fork: " + $0 } + data.diagnostics.map { "data fork: " + $0 }
+                    if !issues.isEmpty && rsrc.bytes.isEmpty && data.bytes.isEmpty {
+                        throw MacFileWriter.WriteError(description: issues.joined(separator: "; ") + "; no recoverable fork bytes")
                     }
-                    try MacFileWriter.writeFile(in: parent, name: entry.name, entry: entry, dataFork: data, resourceFork: rsrc)
-                    fileCount += 1
+                    let outcome = try MacFileWriter.writeFile(in: parent, name: entry.name, entry: entry,
+                        dataFork: data.bytes, resourceFork: rsrc.bytes, diagnostics: issues)
+                    if outcome.complete { fileCount += 1 }
+                    else {
+                        partialCount += 1; errorCount += 1
+                        for issue in outcome.diagnostics { warn("\(entry.name) at offset \(entry.offset): \(issue)") }
+                        warn("partial member preserved as \(outcome.name)")
+                    }
                     let indent = String(repeating: "  ", count: dirStack.count - 1)
-                    log("  \(indent)\(entry.name) (\(data.count + rsrc.count) bytes)", quiet: opts.quiet)
+                    log("  \(indent)\(outcome.name) (\(data.bytes.count + rsrc.bytes.count) bytes)", quiet: opts.quiet)
                 } catch {
                     warn("failed to extract \(entry.name) at offset \(entry.offset): \(error)")
                     errorCount += 1
@@ -178,28 +187,10 @@ func run() -> Int32 {
     }
 
     log("Extracted \(fileCount) file(s) into \(root)", quiet: false)
-    if crcFailures > 0 { warn("\(crcFailures) fork(s) failed CRC verification") }
+    if partialCount > 0 { warn("\(partialCount) partial member(s) recovered") }
     if skippedBytes > 0 { warn("skipped \(skippedBytes) unrecognized byte(s) total during resync") }
     if errorCount > 0 { warn("\(errorCount) member(s) could not be extracted") }
-    return (crcFailures > 0 || errorCount > 0) ? 1 : 0
-}
-
-/// Returns the number of CRC failures (0, 1, or 2) for this entry's forks.
-func verify(entry: SITEntry, rsrc: [UInt8], data: [UInt8]) -> Int {
-    var failures = 0
-    if entry.rsrcUncompressedLength > 0 {
-        if CRC16.checksum(rsrc) != entry.rsrcCRC {
-            warn("resource fork CRC mismatch for \(entry.name)")
-            failures += 1
-        }
-    }
-    if entry.dataUncompressedLength > 0 {
-        if CRC16.checksum(data) != entry.dataCRC {
-            warn("data fork CRC mismatch for \(entry.name)")
-            failures += 1
-        }
-    }
-    return failures
+    return (errorCount > 0) ? 1 : 0
 }
 
 func list(_ archive: SITArchive) -> Int32 {

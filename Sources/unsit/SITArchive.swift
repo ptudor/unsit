@@ -245,11 +245,46 @@ struct SITArchive {
         return report
     }
 
+    struct ForkOutcome {
+        var bytes: [UInt8]
+        var absent: Bool
+        var diagnostics: [String]
+        var complete: Bool { diagnostics.isEmpty }
+    }
+
+    func recoverFork(method: UInt8, offset: Int, compressedLength: Int, uncompressedLength: Int,
+                     crc: UInt16, verify: Bool) -> ForkOutcome {
+        var result: ForkOutcome
+        do {
+            let bytes = try decompressFork(method: method, offset: offset, compressedLength: compressedLength, uncompressedLength: uncompressedLength)
+            result = ForkOutcome(bytes: bytes, absent: compressedLength == 0 && uncompressedLength == 0, diagnostics: [])
+        } catch let damage as ForkDamage {
+            result = ForkOutcome(bytes: damage.bytes, absent: false, diagnostics: [damage.description])
+        } catch {
+            result = ForkOutcome(bytes: [], absent: false, diagnostics: [String(describing: error)])
+        }
+        if verify && !result.absent && CRC16.checksum(result.bytes) != crc { result.diagnostics.append("CRC mismatch") }
+        return result
+    }
+
     /// Decompress a fork given its method, compressed byte range and expected
     /// uncompressed length. Only methods 0 (stored) and 13 are present in the
     /// classic archives targeted here.
     func decompressFork(method: UInt8, offset: Int, compressedLength: Int, uncompressedLength: Int) throws -> [UInt8] {
+        try Limits.check(max(uncompressedLength, method == 0 ? compressedLength : 0), limits.forkBytes, "decoded fork bytes")
         guard offset >= 0, compressedLength >= 0, offset <= extent, compressedLength <= extent - offset else {
+            if method == 0, offset >= 0, offset <= extent, compressedLength >= 0 {
+                throw ForkDamage(bytes: Array(data[offset..<extent]), description: "truncated stored fork length")
+            }
+            if method == 13, offset >= 0, offset <= extent, compressedLength >= 0 {
+                do {
+                    var decoder = try StuffIt13(Array(data[offset..<extent]))
+                    let bytes = try decoder.decompress(expectedLength: uncompressedLength)
+                    throw ForkDamage(bytes: bytes, description: "truncated compressed fork extent")
+                } catch let damage as ForkDamage {
+                    throw ForkDamage(bytes: damage.bytes, description: "truncated compressed fork extent; " + damage.description)
+                }
+            }
             throw SITError.truncated
         }
         try Limits.check(uncompressedLength, limits.forkBytes, "decoded fork bytes")

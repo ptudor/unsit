@@ -46,49 +46,114 @@ enum MacFileWriter {
         }
     }
 
-    static func writeFile(in parent: OutputDirectory, name: String, entry: SITEntry, dataFork: [UInt8], resourceFork: [UInt8]) throws {
+    static let chunkSize = 64 * 1024
+    struct WriteOutcome {
+        let name: String
+        let diagnostics: [String]
+        var complete: Bool { diagnostics.isEmpty }
+    }
+
+    /// Build both native forks on one descriptor. RENAME_EXCL publishes the
+    /// complete inode atomically, never replacing existing files or symlinks.
+    @discardableResult
+    static func writeFile(in parent: OutputDirectory, name: String, entry: SITEntry,
+                          dataFork: [UInt8], resourceFork: [UInt8],
+                          diagnostics: [String] = [], io: WriterIO = WriterIO()) throws -> WriteOutcome {
         try validate(name)
-        let fd = openat(parent.fd, name, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o644)
-        guard fd >= 0 else { throw failure("create file (existing output preserved)", name) }
-        defer { _ = close(fd) }
-        try dataFork.withUnsafeBytes { buf in
+        let temporary = ".unsit-tmp-" + UUID().uuidString
+        let fd = io.create(parent.fd, temporary)
+        guard fd >= 0 else { throw failure("create temporary file", name, errno) }
+        var closed = false
+        var published = false
+        defer {
+            if !closed { _ = io.close(fd) }
+            if !published { _ = unlinkat(parent.fd, temporary, 0) }
+        }
+        var issues = diagnostics
+        io.stage("created")
+        do { try writeData(fd: fd, name: name, bytes: dataFork, io: io) }
+        catch { issues.append(String(describing: error)) }
+        io.stage("data")
+        do { try writeResource(fd: fd, name: name, bytes: resourceFork, io: io) }
+        catch { issues.append(String(describing: error)) }
+        io.stage("resource")
+        issues += setMetadata(fd: fd, entry: entry, io: io)
+        io.stage("metadata")
+        if io.flush(fd) != 0 { let code = errno; issues.append(failure("flush member", name, code).description) }
+        io.stage("flushed")
+        // Never retry close, including EINTR: descriptor ownership ends here.
+        closed = true
+        if io.close(fd) != 0 { let code = errno; issues.append(failure("close member", name, code).description) }
+        io.stage("closed")
+        let finalName = issues.isEmpty ? name : name + ".partial-\(entry.offset)"
+        try validate(finalName)
+        guard io.publish(parent.fd, temporary, finalName) == 0 else {
+            let code = errno
+            throw WriteError(description: (issues + [failure("publish (existing output preserved)", finalName, code).description]).joined(separator: "; "))
+        }
+        published = true
+        return WriteOutcome(name: finalName, diagnostics: issues)
+    }
+
+    static func writeData(fd: Int32, name: String, bytes: [UInt8], io: WriterIO) throws {
+        try bytes.withUnsafeBytes { buf in
             var offset = 0
             while offset < buf.count {
-                let n = Darwin.write(fd, buf.baseAddress!.advanced(by: offset), buf.count - offset)
-                guard n > 0 else { throw failure("write data fork", name) }
+                let count = min(chunkSize, buf.count - offset)
+                let n = io.write(fd, buf.baseAddress!.advanced(by: offset), count)
+                if n < 0 {
+                    let code = errno
+                    if code == EINTR { continue }
+                    throw failure("write data fork", name, code)
+                }
+                guard n > 0, n <= count else { throw WriteError(description: "zero progress/short write to \(name)") }
                 offset += n
             }
         }
-        if !resourceFork.isEmpty {
-            let result = resourceFork.withUnsafeBytes { fsetxattr(fd, "com.apple.ResourceFork", $0.baseAddress, $0.count, 0, 0) }
-            guard result == 0 else { throw failure("write resource fork", name) }
+    }
+
+    static func writeResource(fd: Int32, name: String, bytes: [UInt8], io: WriterIO) throws {
+        try bytes.withUnsafeBytes { buf in
+            var offset = 0
+            while offset < buf.count {
+                let count = min(chunkSize, buf.count - offset)
+                // ResourceFork is the macOS xattr supporting positional I/O.
+                // Unlike write(), fsetxattr is all-or-error for each request.
+                let n = io.xattr(fd, "com.apple.ResourceFork", buf.baseAddress!.advanced(by: offset), count, UInt32(offset))
+                if n != 0 {
+                    let code = errno
+                    if code == EINTR { continue }
+                    throw failure("write resource fork", name, code)
+                }
+                offset += count
+            }
         }
-        setMetadata(fd: fd, entry: entry)
     }
 
-    static func createDirectory(in parent: OutputDirectory, name: String, entry: SITEntry) throws -> OutputDirectory {
-        let dir = try parent.create(name)
-        setMetadata(fd: dir.fd, entry: entry, isDirectory: true)
-        return dir
-    }
-
-    static func setMetadata(fd: Int32, entry: SITEntry, isDirectory: Bool = false) {
+    /// Metadata fields are independent: return every failure after attempting
+    /// both fields, so useful bytes and successfully restored fields survive.
+    static func setMetadata(fd: Int32, entry: SITEntry, isDirectory: Bool = false, io: WriterIO = WriterIO()) -> [String] {
+        var issues: [String] = []
         var info = [UInt8](repeating: 0, count: 32)
         if !isDirectory {
             info.replaceSubrange(0..<4, with: entry.type)
             info.replaceSubrange(4..<8, with: entry.creator)
         }
         info[8] = UInt8(entry.finderFlags >> 8); info[9] = UInt8(entry.finderFlags & 255)
-        _ = info.withUnsafeBytes { fsetxattr(fd, "com.apple.FinderInfo", $0.baseAddress, 32, 0, 0) }
-        setModificationDate(fd: fd, macDate: entry.modificationDate)
+        let result = info.withUnsafeBytes { io.xattr(fd, "com.apple.FinderInfo", $0.baseAddress!, 32, 0) }
+        if result != 0 { let code = errno; issues.append(failure("restore FinderInfo", entry.name, code).description) }
+        if let issue = setModificationDate(fd: fd, macDate: entry.modificationDate, name: entry.name, io: io) { issues.append(issue) }
+        return issues
     }
 
-    static func setModificationDate(fd: Int32, macDate: UInt32) {
-        guard macDate != 0 else { return }
+    static func setModificationDate(fd: Int32, macDate: UInt32, name: String, io: WriterIO = WriterIO()) -> String? {
+        guard macDate != 0 else { return nil }
         let unix = Int64(macDate) - macEpochOffset
-        guard unix > 0 else { return }
+        guard unix > 0 else { return nil }
         let tv = timeval(tv_sec: Int(unix), tv_usec: 0)
-        var times = [tv, tv]
-        _ = futimes(fd, &times)
+        let times = [tv, tv]
+        let result = times.withUnsafeBufferPointer { io.times(fd, $0.baseAddress!) }
+        if result != 0 { let code = errno; return failure("restore modification date", name, code).description }
+        return nil
     }
 }

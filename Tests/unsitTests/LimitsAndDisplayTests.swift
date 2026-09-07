@@ -37,7 +37,7 @@ final class LimitsAndDisplayTests: XCTestCase {
                 XCTAssertFalse(output.contains("\u{1b}")); XCTAssertFalse(output.contains("\r")); XCTAssertFalse(output.contains("\t")); XCTAssertFalse(output.contains("\u{7}"))
                 XCTAssertFalse(output.contains("\n\tname"))
             }
-            if !flags.contains("--list") { XCTAssertEqual(try s.bytes(name), [1]) }
+            if !flags.contains("--list") { XCTAssertEqual(try s.bytes(flags.contains("--no-verify") ? name : name + ".partial-22"), [1]) }
         }
     }
 }

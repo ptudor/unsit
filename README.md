@@ -163,3 +163,21 @@ exclusive creation; a collision is reported and skipped. List mode reports the
 same intended recovery paths. Folder flags `0x10` (contains encrypted children)
 and `0x80` are separated from `0x20`/`0x21` marker values in either method field;
 encrypted nonempty file forks remain unsupported.
+
+Each member is built as a unique `.unsit-tmp-UUID` sibling, then both native
+forks are flushed, metadata is attempted independently, and close is checked
+before exclusive atomic publication. A damaged fork or failed restoration uses
+`NAME.partial-HEADER_OFFSET` with per-fork/operation warnings and a nonzero
+result. Complete and partial members are counted separately. An independently
+valid fork and safe decoder prefixes survive a failure in the other fork; a
+failed fork is never described as an absent clean fork. CRC-damaged bytes remain
+recoverable under this partial-name policy. Existing complete or partial output
+is preserved even if publication collides.
+
+Handled failures clean up their temporary pathname within the opened directory.
+Abrupt termination can leave a clearly named `.unsit-tmp-UUID` orphan; it cannot
+appear as a completed member. The tool does not automatically delete preexisting
+orphans. File `fsync` and close are checked; atomic visibility is guaranteed for
+publication, but crash/power-loss durability of the directory entry is not
+promised. Resource forks use bounded positional `fsetxattr` on the member's
+file descriptor, avoiding a second pathname-based resource open/close.

@@ -68,11 +68,12 @@ final class Sandbox {
         try Data(bytes).write(to: root.appendingPathComponent("input.sit"))
         return try command(flags + ["input.sit", "out"])
     }
-    func command(_ args: [String]) throws -> (Int32, String, String) {
+    func command(_ args: [String], environment: [String: String] = [:]) throws -> (Int32, String, String) {
         let repo = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let p = Process()
         p.executableURL = URL(fileURLWithPath: ProcessInfo.processInfo.environment["UNSIT_TEST_BINARY"] ?? repo.appendingPathComponent(".build/debug/unsit").path)
         p.arguments = args; p.currentDirectoryURL = root
+        p.environment = ProcessInfo.processInfo.environment.merging(environment, uniquingKeysWith: { _, new in new })
         let stdout = root.appendingPathComponent("stdout"), stderr = root.appendingPathComponent("stderr")
         FileManager.default.createFile(atPath: stdout.path, contents: nil)
         FileManager.default.createFile(atPath: stderr.path, contents: nil)
@@ -104,5 +105,14 @@ struct Bits {
         var out = [UInt8](repeating: 0, count: (bits.count + 7)/8)
         for (i,b) in bits.enumerated() { out[i/8] |= UInt8(b << (i%8)) }
         return out
+    }
+}
+
+extension Fixture {
+    static func decodedEntry(_ member: [UInt8]? = nil) throws -> SITEntry {
+        let archive = try SITArchive(data: self.archive([member ?? self.member(data: [1], rsrc: [2])]))
+        var entry: SITEntry!
+        try archive.forEachEntry(onResync: { _, _ in }) { entry = $0 }
+        return entry
     }
 }
