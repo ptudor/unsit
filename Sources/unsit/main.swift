@@ -6,6 +6,7 @@ struct Options {
     var list = false
     var quiet = false
     var noVerify = false
+    var limits = Limits()
 }
 
 func usage() -> Never {
@@ -41,6 +42,16 @@ func parseArguments() -> Options {
         case "-l", "--list": opts.list = true
         case "-q", "--quiet": opts.quiet = true
         case "--no-verify": opts.noVerify = true
+        case "--max-input-bytes", "--max-fork-bytes", "--max-total-bytes", "--max-members", "--max-depth", "--max-recovery-bytes":
+            guard !args.isEmpty, let n = Int(args.removeFirst()), n >= 0 else { usage() }
+            switch a {
+            case "--max-input-bytes": opts.limits.inputBytes = n
+            case "--max-fork-bytes": opts.limits.forkBytes = n
+            case "--max-total-bytes": opts.limits.totalBytes = n
+            case "--max-members": opts.limits.members = n
+            case "--max-depth": opts.limits.depth = n
+            default: opts.limits.recoveryBytes = n
+            }
         case "-o", "--output":
             guard !args.isEmpty else { usage() }
             opts.outputDir = args.removeFirst()
@@ -57,11 +68,11 @@ func parseArguments() -> Options {
 }
 
 func log(_ s: String, quiet: Bool = false) {
-    if !quiet { print(s) }
+    if !quiet { print(display(s)) }
 }
 
 func warn(_ s: String) {
-    FileHandle.standardError.write(Data("warning: \(s)\n".utf8))
+    FileHandle.standardError.write(Data("warning: \(display(s))\n".utf8))
 }
 
 func run() -> Int32 {
@@ -70,16 +81,11 @@ func run() -> Int32 {
     }
     let opts = parseArguments()
 
-    guard let data = FileManager.default.contents(atPath: opts.archivePath) else {
-        FileHandle.standardError.write(Data("error: cannot read \(opts.archivePath)\n".utf8))
-        return 1
-    }
-
     let archive: SITArchive
     do {
-        archive = try SITArchive(data: [UInt8](data))
+        archive = try SITArchive(data: opts.limits.readInput(opts.archivePath), limits: opts.limits)
     } catch {
-        FileHandle.standardError.write(Data("error: \(error)\n".utf8))
+        FileHandle.standardError.write(Data("error: \(display(String(describing: error)))\n".utf8))
         return 1
     }
 
@@ -92,14 +98,16 @@ func run() -> Int32 {
     let stem = base.hasSuffix(".sit") ? String(base.dropLast(4)) : base + " (extracted)"
     let root = opts.outputDir ?? stem
 
+    let rootDirectory: OutputDirectory
     do {
-        try FileManager.default.createDirectory(atPath: root, withIntermediateDirectories: true)
+        rootDirectory = try OutputDirectory.root(root)
     } catch {
-        FileHandle.standardError.write(Data("error: cannot create output directory \(root): \(error)\n".utf8))
+        FileHandle.standardError.write(Data("error: cannot create output directory \(root): \(display(String(describing: error)))\n".utf8))
         return 1
     }
 
-    var dirStack = [root]
+    var dirStack: [OutputDirectory?] = [rootDirectory]
+    let budget = OutputBudget(opts.limits)
     var fileCount = 0
     var crcFailures = 0
     var skippedBytes = 0
@@ -112,17 +120,26 @@ func run() -> Int32 {
         }) { entry in
             switch entry.kind {
             case .folderStart:
-                let dir = dirStack.last! + "/" + entry.name
-                try MacFileWriter.createDirectory(at: dir, entry: entry)
-                dirStack.append(dir)
+                do {
+                    try MacFileWriter.validate(entry.name)
+                    guard let parent = dirStack.last! else { throw MacFileWriter.WriteError(description: "blocked parent directory") }
+                    let dir = try MacFileWriter.createDirectory(in: parent, name: entry.name, entry: entry)
+                    dirStack.append(dir)
+                } catch {
+                    warn("failed folder \(entry.name) at offset \(entry.offset): \(error)")
+                    errorCount += 1
+                    dirStack.append(nil)
+                }
                 log("  \(String(repeating: "  ", count: dirStack.count - 2))[\(entry.name)]/", quiet: opts.quiet)
 
             case .folderEnd:
                 if dirStack.count > 1 { dirStack.removeLast() }
 
             case .file:
-                let path = dirStack.last! + "/" + entry.name
                 do {
+                    try MacFileWriter.validate(entry.name)
+                    guard let parent = dirStack.last! else { throw MacFileWriter.WriteError(description: "blocked parent directory") }
+                    try budget.reserve(entry)
                     let rsrc = try archive.decompressFork(
                         method: entry.rsrcMethod, offset: entry.rsrcOffset,
                         compressedLength: entry.rsrcCompressedLength,
@@ -135,7 +152,7 @@ func run() -> Int32 {
                     if !opts.noVerify {
                         crcFailures += verify(entry: entry, rsrc: rsrc, data: data)
                     }
-                    try MacFileWriter.writeFile(at: path, entry: entry, dataFork: data, resourceFork: rsrc)
+                    try MacFileWriter.writeFile(in: parent, name: entry.name, entry: entry, dataFork: data, resourceFork: rsrc)
                     fileCount += 1
                     let indent = String(repeating: "  ", count: dirStack.count - 1)
                     log("  \(indent)\(entry.name) (\(data.count + rsrc.count) bytes)", quiet: opts.quiet)
@@ -146,11 +163,11 @@ func run() -> Int32 {
             }
         }
     } catch {
-        FileHandle.standardError.write(Data("error: \(error)\n".utf8))
+        FileHandle.standardError.write(Data("error: \(display(String(describing: error)))\n".utf8))
         return 1
     }
 
-    log("\nExtracted \(fileCount) file(s) into \(root)", quiet: false)
+    log("Extracted \(fileCount) file(s) into \(root)", quiet: false)
     if crcFailures > 0 { warn("\(crcFailures) fork(s) failed CRC verification") }
     if skippedBytes > 0 { warn("skipped \(skippedBytes) unrecognized byte(s) total during resync") }
     if errorCount > 0 { warn("\(errorCount) member(s) could not be extracted") }
@@ -185,19 +202,19 @@ func list(_ archive: SITArchive) -> Int32 {
             let indent = String(repeating: "  ", count: max(0, depth))
             switch entry.kind {
             case .folderStart:
-                print("\(indent)[\(entry.name)]/")
+                print(display("\(indent)[\(entry.name)]/"))
                 depth += 1
             case .folderEnd:
                 depth = max(0, depth - 1)
             case .file:
                 let type = String(bytes: entry.type, encoding: .macOSRoman) ?? "????"
                 let m = "r\(entry.rsrcMethod)/d\(entry.dataMethod)"
-                print("\(indent)\(entry.name)  [\(type)] \(m) rsrc=\(entry.rsrcUncompressedLength) data=\(entry.dataUncompressedLength)")
+                print(display("\(indent)\(entry.name)  [\(type)] \(m) rsrc=\(entry.rsrcUncompressedLength) data=\(entry.dataUncompressedLength)"))
                 count += 1
             }
         }
     } catch {
-        FileHandle.standardError.write(Data("error: \(error)\n".utf8))
+        FileHandle.standardError.write(Data("error: \(display(String(describing: error)))\n".utf8))
         return 1
     }
     print("\n\(count) file(s)")

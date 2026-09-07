@@ -55,10 +55,17 @@ struct SITArchive {
     static let folderStart: UInt8 = 0x20
     static let folderEnd: UInt8 = 0x21
 
-    let data: [UInt8]
+    let data: Data
+    let limits: Limits
     let numFiles: Int
 
-    init(data: [UInt8]) throws {
+    init(data: [UInt8], limits: Limits = Limits()) throws {
+        try self.init(data: Data(data), limits: limits)
+    }
+
+    init(data: Data, limits: Limits = Limits()) throws {
+        try Limits.check(data.count, limits.inputBytes, "input bytes")
+        self.limits = limits
         guard data.count >= Self.headerSize,
               data[0] == 0x53, data[1] == 0x49, data[2] == 0x54, data[3] == 0x21 else { // "SIT!"
             throw SITError.notAStuffItArchive
@@ -129,11 +136,16 @@ struct SITArchive {
     /// header and reports the number of skipped bytes via `onResync`.
     func forEachEntry(onResync: (Int, Int) -> Void, _ body: (SITEntry) throws -> Void) throws {
         var pos = Self.headerSize
+        var members = 0
+        var depth = 0
+        var recoveryWork = 0
         while pos + Self.entryHeaderSize <= data.count {
             if !isValidHeader(at: pos) {
                 // Resync: scan forward for the next CRC-valid header.
                 var scan = pos + 1
                 while scan + Self.entryHeaderSize <= data.count && !isValidHeader(at: scan) {
+                    recoveryWork += 1
+                    try Limits.check(recoveryWork, limits.recoveryBytes, "recovery scan bytes")
                     scan += 1
                 }
                 if scan + Self.entryHeaderSize > data.count { break } // no more headers
@@ -142,6 +154,12 @@ struct SITArchive {
                 continue
             }
             let e = entry(at: pos)
+            members += 1
+            try Limits.check(members, limits.members, "members")
+            if e.kind == .folderStart {
+                depth += 1
+                try Limits.check(depth, limits.depth, "nesting depth")
+            } else if e.kind == .folderEnd { depth = max(0, depth - 1) }
             try body(e)
             switch e.kind {
             case .folderStart, .folderEnd:
@@ -159,6 +177,7 @@ struct SITArchive {
         guard compressedLength >= 0, offset + compressedLength <= data.count else {
             throw SITError.truncated
         }
+        try Limits.check(uncompressedLength, limits.forkBytes, "decoded fork bytes")
         let slice = Array(data[offset..<(offset + compressedLength)])
         switch method {
         case 0:

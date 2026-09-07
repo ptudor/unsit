@@ -123,3 +123,21 @@ Run `swift test` on macOS from a clean checkout. The native suite builds the CLI
 uses isolated temporary directories, and includes redistributable synthetic
 archives with explicit expected bytes. See `Tests/unsitTests/Fixtures/README.md`
 for fixture provenance and the separate historical-corpus/minimum-platform gates.
+
+Extraction preserves existing destinations: conflicting files or folders are
+skipped with a warning and a nonzero result. Unrelated archive folders are never
+merged. Unsafe empty, `.` and `..` member names are rejected; descendants of a
+blocked folder are skipped until its closing marker. Output roots and their
+path components must be ordinary directories, without symlinks. Member data,
+resource forks, and metadata use the same opened descriptors. Displayed control
+characters are escaped; safe Mac Roman names and `/` to `:` mapping are retained.
+
+Resource limits apply before allocation/output: input 256 MiB, decoded fork
+64 MiB, aggregate decoded output 512 MiB, 100,000 member records, nesting 128,
+and 1 MiB of recovery scanning. Deliberately override individual limits with
+`--max-input-bytes N`, `--max-fork-bytes N`, `--max-total-bytes N`,
+`--max-members N`, `--max-depth N`, or `--max-recovery-bytes N` (nonnegative
+integers, bytes where applicable). Input is read in bounded chunks; at most the
+bounded input, a compressed fork copy, and the two bounded decoded forks are
+retained. Reservations include damaged stored output and are not refunded for
+failed members. List mode enforces input, member, nesting, and recovery limits.
