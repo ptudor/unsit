@@ -36,7 +36,16 @@ enum Fixture {
     static func archive(_ parts: [[UInt8]], count: Int? = nil, total: Int? = nil) -> [UInt8] {
         let body = parts.flatMap { $0 }
         var h = Array("SIT!".utf8) + [UInt8](repeating: 0, count: 18)
-        put(count ?? parts.count, in: &h, at: 4, width: 2)
+        var depth = 0, roots = 0
+        for part in parts where part.count >= 112 {
+            let rm = part[0] & 0x6f, dm = part[1] & 0x6f
+            if rm == 33 || dm == 33 { depth = max(0, depth - 1) }
+            else {
+                if depth == 0 { roots += 1 }
+                if rm == 32 || dm == 32 { depth += 1 }
+            }
+        }
+        put(count ?? roots, in: &h, at: 4, width: 2)
         put(total ?? (22 + body.count), in: &h, at: 6, width: 4)
         h.replaceSubrange(10..<14, with: Array("rLau".utf8)); h[14] = 1
         return h + body

@@ -102,7 +102,7 @@ func run() -> Int32 {
     do {
         rootDirectory = try OutputDirectory.root(root)
     } catch {
-        FileHandle.standardError.write(Data("error: cannot create output directory \(root): \(display(String(describing: error)))\n".utf8))
+        FileHandle.standardError.write(Data("error: cannot create output directory \(display(root)): \(display(String(describing: error)))\n".utf8))
         return 1
     }
 
@@ -114,12 +114,14 @@ func run() -> Int32 {
     var errorCount = 0
 
     do {
-        try archive.forEachEntry(onResync: { pos, skipped in
-            warn("resynced at offset \(pos), skipped \(skipped) unrecognized byte(s)")
+        let report = try archive.forEachEntry(onResync: { pos, skipped in
+            warn("resynced at offset \(pos + skipped), skipped \(skipped) unrecognized byte(s)")
             skippedBytes += skipped
         }) { entry in
+            if entry.hierarchyUncertain && dirStack.count > 1 { dirStack = [rootDirectory] }
             switch entry.kind {
             case .folderStart:
+                if entry.hierarchyUncertain { return }
                 do {
                     try MacFileWriter.validate(entry.name)
                     guard let parent = dirStack.last! else { throw MacFileWriter.WriteError(description: "blocked parent directory") }
@@ -133,13 +135,19 @@ func run() -> Int32 {
                 log("  \(String(repeating: "  ", count: dirStack.count - 2))[\(entry.name)]/", quiet: opts.quiet)
 
             case .folderEnd:
+                if entry.hierarchyUncertain { return }
                 if dirStack.count > 1 { dirStack.removeLast() }
 
             case .file:
                 do {
                     try MacFileWriter.validate(entry.name)
-                    guard let parent = dirStack.last! else { throw MacFileWriter.WriteError(description: "blocked parent directory") }
+                    guard let trustedParent = dirStack.last! else { throw MacFileWriter.WriteError(description: "blocked parent directory") }
                     try budget.reserve(entry)
+                    let parent: OutputDirectory
+                    if entry.hierarchyUncertain {
+                        parent = try rootDirectory.create(entry.recoveryDirectory)
+                        warn("uncertain member at \(entry.offset) recovered as \(entry.recoveryDirectory)/\(entry.name)")
+                    } else { parent = trustedParent }
                     let rsrc = try archive.decompressFork(
                         method: entry.rsrcMethod, offset: entry.rsrcOffset,
                         compressedLength: entry.rsrcCompressedLength,
@@ -162,6 +170,8 @@ func run() -> Int32 {
                 }
             }
         }
+        for diagnostic in report.diagnostics { warn(diagnostic) }
+        if !report.complete { errorCount += 1 }
     } catch {
         FileHandle.standardError.write(Data("error: \(display(String(describing: error)))\n".utf8))
         return 1
@@ -196,10 +206,11 @@ func list(_ archive: SITArchive) -> Int32 {
     var depth = 0
     var count = 0
     do {
-        try archive.forEachEntry(onResync: { pos, skipped in
-            warn("resynced at offset \(pos), skipped \(skipped) byte(s)")
+        let report = try archive.forEachEntry(onResync: { pos, skipped in
+            warn("resynced at offset \(pos + skipped), skipped \(skipped) byte(s)")
         }) { entry in
-            let indent = String(repeating: "  ", count: max(0, depth))
+            let indent = String(repeating: "  ", count: entry.hierarchyUncertain ? 0 : max(0, depth))
+            let memberName = entry.hierarchyUncertain ? entry.recoveryDirectory + "/" + entry.name : entry.name
             switch entry.kind {
             case .folderStart:
                 print(display("\(indent)[\(entry.name)]/"))
@@ -209,16 +220,17 @@ func list(_ archive: SITArchive) -> Int32 {
             case .file:
                 let type = String(bytes: entry.type, encoding: .macOSRoman) ?? "????"
                 let m = "r\(entry.rsrcMethod)/d\(entry.dataMethod)"
-                print(display("\(indent)\(entry.name)  [\(type)] \(m) rsrc=\(entry.rsrcUncompressedLength) data=\(entry.dataUncompressedLength)"))
+                print(display("\(indent)\(memberName)  [\(type)] \(m) rsrc=\(entry.rsrcUncompressedLength) data=\(entry.dataUncompressedLength)"))
                 count += 1
             }
         }
+        for diagnostic in report.diagnostics { warn(diagnostic) }
+        print("\n\(count) file(s)")
+        return report.complete ? 0 : 1
     } catch {
         FileHandle.standardError.write(Data("error: \(display(String(describing: error)))\n".utf8))
         return 1
     }
-    print("\n\(count) file(s)")
-    return 0
 }
 
 exit(run())

@@ -15,6 +15,8 @@ enum SITError: Error, CustomStringConvertible {
 /// One decoded archive member.
 struct SITEntry {
     enum Kind { case file, folderStart, folderEnd }
+    var hierarchyUncertain = false
+    var recoveryDirectory: String { ".unsit-recovery-\(offset)" }
     var kind: Kind
     var name: String                 // decoded, path-separator-safe
     var rawName: [UInt8]             // original Mac Roman bytes
@@ -58,6 +60,9 @@ struct SITArchive {
     let data: Data
     let limits: Limits
     let numFiles: Int
+    let extent: Int
+    let declaredExtent: Int
+    let version: UInt8
 
     init(data: [UInt8], limits: Limits = Limits()) throws {
         try self.init(data: Data(data), limits: limits)
@@ -67,11 +72,16 @@ struct SITArchive {
         try Limits.check(data.count, limits.inputBytes, "input bytes")
         self.limits = limits
         guard data.count >= Self.headerSize,
-              data[0] == 0x53, data[1] == 0x49, data[2] == 0x54, data[3] == 0x21 else { // "SIT!"
+              data[0] == 0x53, data[1] == 0x49, data[2] == 0x54, data[3] == 0x21,
+              Array(data[10..<14]) == Array("rLau".utf8) else { // "SIT!"
             throw SITError.notAStuffItArchive
         }
         self.data = data
         self.numFiles = Int(data[4]) << 8 | Int(data[5])
+        self.declaredExtent = Int(data[6]) << 24 | Int(data[7]) << 16 | Int(data[8]) << 8 | Int(data[9])
+        guard declaredExtent >= Self.headerSize else { throw SITError.truncated }
+        self.extent = min(declaredExtent, data.count)
+        self.version = data[14]
     }
 
     private func u16(_ o: Int) -> UInt16 { UInt16(data[o]) << 8 | UInt16(data[o + 1]) }
@@ -81,7 +91,7 @@ struct SITArchive {
 
     /// True if a valid 112-byte entry header (matching its stored CRC) begins at `o`.
     func isValidHeader(at o: Int) -> Bool {
-        guard o >= 0, o + Self.entryHeaderSize <= data.count else { return false }
+        guard o >= 0, o <= extent, Self.entryHeaderSize <= extent - o else { return false }
         let stored = u16(o + 110)
         return CRC16.checksum(data[o..<(o + 110)]) == stored
     }
@@ -102,8 +112,8 @@ struct SITArchive {
         let rm = data[o], dm = data[o + 1], nl = Int(data[o + 2])
         let (name, raw) = decodeName(o, nl)
         let kind: SITEntry.Kind
-        if rm == Self.folderStart || dm == Self.folderStart { kind = .folderStart }
-        else if rm == Self.folderEnd || dm == Self.folderEnd { kind = .folderEnd }
+        if (rm & 0x6f) == Self.folderStart || (dm & 0x6f) == Self.folderStart { kind = .folderStart }
+        else if (rm & 0x6f) == Self.folderEnd || (dm & 0x6f) == Self.folderEnd { kind = .folderEnd }
         else { kind = .file }
 
         let rC = u32(o + 92), dC = u32(o + 96)
@@ -130,51 +140,116 @@ struct SITArchive {
         )
     }
 
-    /// Walk the archive, yielding entries in order. Uses the header CRC to
-    /// validate each position; on a mismatch (e.g. the isolated stray-fork
-    /// anomaly observed in one sample), it resyncs forward to the next valid
-    /// header and reports the number of skipped bytes via `onResync`.
-    func forEachEntry(onResync: (Int, Int) -> Void, _ body: (SITEntry) throws -> Void) throws {
-        var pos = Self.headerSize
+    struct TraversalReport {
+        var diagnostics: [String] = []
+        var skippedBytes = 0
         var members = 0
-        var depth = 0
+        var complete: Bool { diagnostics.isEmpty }
+    }
+
+    /// CRC and structural plausibility are distinct. Recovery candidates must
+    /// fit entirely; an ordinary incomplete member can still expose a safe fork.
+    private func plausible(at offset: Int, recovery: Bool) -> Bool {
+        guard isValidHeader(at: offset), data[offset + 2] <= 31 else { return false }
+        let e = entry(at: offset)
+        let rm = e.rsrcMethod & 0x6f, dm = e.dataMethod & 0x6f
+        guard !((rm == 32 && dm == 33) || (rm == 33 && dm == 32)) else { return false }
+        if e.kind != .file {
+            guard e.rsrcCompressedLength == 0, e.dataCompressedLength == 0 else { return false }
+        } else if e.rawName.isEmpty { return false }
+        if recovery {
+            if e.kind != .folderEnd, (try? MacFileWriter.validate(e.name)) == nil { return false }
+            guard payloadEnd(e) <= extent else { return false }
+        }
+        return true
+    }
+
+    private func payloadEnd(_ e: SITEntry) -> Int {
+        // All fields are UInt32 values represented by 64-bit Int on macOS.
+        e.kind == .file ? e.dataOffset + e.dataCompressedLength : e.offset + Self.entryHeaderSize
+    }
+
+    /// onResync receives invalid start and skipped length, never the recovered
+    /// offset. Both CLI consumers compute start + skipped for their diagnostics.
+    @discardableResult
+    func forEachEntry(onResync: (Int, Int) -> Void, _ body: (SITEntry) throws -> Void) throws -> TraversalReport {
+        var report = TraversalReport()
+        if declaredExtent != data.count {
+            report.diagnostics.append("declared archive extent \(declaredExtent) differs from physical length \(data.count); parsing only 22..\(extent)")
+        }
+        var pos = Self.headerSize
+        var stack: [SITEntry] = []
+        var rootMembers = 0
+        var uncertain = false
         var recoveryWork = 0
-        while pos + Self.entryHeaderSize <= data.count {
-            if !isValidHeader(at: pos) {
-                // Resync: scan forward for the next CRC-valid header.
+        while pos < extent {
+            if !plausible(at: pos, recovery: false) {
+                let start = pos
                 var scan = pos + 1
-                while scan + Self.entryHeaderSize <= data.count && !isValidHeader(at: scan) {
+                while scan <= extent - Self.entryHeaderSize {
                     recoveryWork += 1
                     try Limits.check(recoveryWork, limits.recoveryBytes, "recovery scan bytes")
+                    if plausible(at: scan, recovery: true) { break }
                     scan += 1
                 }
-                if scan + Self.entryHeaderSize > data.count { break } // no more headers
-                onResync(pos, scan - pos)
+                guard scan <= extent - Self.entryHeaderSize else {
+                    report.skippedBytes += extent - start
+                    report.diagnostics.append("terminal damaged/incomplete header gap \(start)..\(extent); no recovery header found")
+                    break
+                }
+                report.skippedBytes += scan - start
+                onResync(start, scan - start)
+                let candidate = entry(at: scan)
+                let next = payloadEnd(candidate)
+                let corroborated = next == extent || plausible(at: next, recovery: true)
+                report.diagnostics.append("ambiguous recovery at \(scan): hierarchy uncertain; next boundary \(corroborated ? "corroborated" : "uncorroborated")")
+                if !stack.isEmpty {
+                    report.diagnostics.append("incomplete folder state at gap \(start); prior folders will not receive recovered children")
+                }
+                uncertain = true
+                stack.removeAll()
                 pos = scan
-                continue
             }
-            let e = entry(at: pos)
-            members += 1
-            try Limits.check(members, limits.members, "members")
-            if e.kind == .folderStart {
-                depth += 1
-                try Limits.check(depth, limits.depth, "nesting depth")
-            } else if e.kind == .folderEnd { depth = max(0, depth - 1) }
-            try body(e)
+            var e = entry(at: pos)
+            e.hierarchyUncertain = uncertain
+            report.members += 1
+            try Limits.check(report.members, limits.members, "members")
+            if e.kind != .folderEnd && stack.isEmpty { rootMembers += 1 }
             switch e.kind {
-            case .folderStart, .folderEnd:
-                pos += Self.entryHeaderSize
-            case .file:
-                pos += Self.entryHeaderSize + e.rsrcCompressedLength + e.dataCompressedLength
+            case .folderStart:
+                try Limits.check(stack.count + 1, limits.depth, "nesting depth")
+                stack.append(e)
+            case .folderEnd:
+                if stack.isEmpty {
+                    report.diagnostics.append("unmatched folder end at \(e.offset); subsequent hierarchy uncertain")
+                    uncertain = true
+                } else { stack.removeLast() }
+            case .file: break
             }
+            if payloadEnd(e) > extent {
+                report.diagnostics.append("incomplete member at \(e.offset): payload ends at \(payloadEnd(e)), archive extent \(extent)")
+            }
+            try body(e)
+            pos = min(payloadEnd(e), extent)
         }
+        for e in stack.reversed() { report.diagnostics.append("unclosed folder \(e.name) at offset \(e.offset)") }
+        // The classic recursive macutils reader counts a root file or a whole
+        // root folder once. Do not infer version-specific extensions from it.
+        if version == 1 {
+            if !uncertain && rootMembers != numFiles {
+                report.diagnostics.append("archive count mismatch: declared \(numFiles) root items, traversed \(rootMembers)")
+            }
+        } else {
+            report.diagnostics.append("count validation SKIPPED for unverified classic archive version \(version)")
+        }
+        return report
     }
 
     /// Decompress a fork given its method, compressed byte range and expected
     /// uncompressed length. Only methods 0 (stored) and 13 are present in the
     /// classic archives targeted here.
     func decompressFork(method: UInt8, offset: Int, compressedLength: Int, uncompressedLength: Int) throws -> [UInt8] {
-        guard offset >= 0, compressedLength >= 0, offset <= data.count, compressedLength <= data.count - offset else {
+        guard offset >= 0, compressedLength >= 0, offset <= extent, compressedLength <= extent - offset else {
             throw SITError.truncated
         }
         try Limits.check(uncompressedLength, limits.forkBytes, "decoded fork bytes")

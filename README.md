@@ -148,3 +148,18 @@ mean an absent fork regardless of the unused method byte. Method 13 preserves th
 reference's 64 KiB zero-initialized history and length-delimited completion,
 including a terminal match spanning the declared boundary; no extra terminator
 is required. Dynamic lengths -1 and zero denote omitted symbols.
+
+Both archive signatures and the declared extent are validated. Bytes outside the
+declared extent are diagnosed and not parsed. Incomplete headers/payloads,
+resynchronization and unbalanced folders return nonzero in list and extraction
+modes. Version-1 header counts are checked against root files plus root folders
+(each complete folder counts once). Count enforcement for other classic header
+versions is unverified and explicitly diagnosed with a nonzero result.
+
+Recovery candidates require structural plausibility in addition to CRC. After a
+lost header, hierarchy remains uncertain: independently identified files go to
+`.unsit-recovery-HEADER_OFFSET/NAME` under the output root. These directories use
+exclusive creation; a collision is reported and skipped. List mode reports the
+same intended recovery paths. Folder flags `0x10` (contains encrypted children)
+and `0x80` are separated from `0x20`/`0x21` marker values in either method field;
+encrypted nonempty file forks remain unsupported.
