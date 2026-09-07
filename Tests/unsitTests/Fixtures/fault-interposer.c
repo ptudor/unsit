@@ -1,6 +1,7 @@
 // Synthetic macOS syscall faults; used only by XCTest subprocesses.
 #include <sys/xattr.h>
 #include <sys/time.h>
+#include <sys/stat.h>
 #include <unistd.h>
 #include <signal.h>
 #include <stdlib.h>
@@ -30,9 +31,15 @@ static int test_close(int fd) {
     }
     return close(fd);
 }
+static int test_mkdirat(int fd, const char *name, mode_t permissions) {
+    if (mode("directory") && strcmp(name, "blocked") == 0) { errno = EACCES; return -1; }
+    return mkdirat(fd, name, permissions);
+}
 #define INTERPOSE(replacement, original) \
     __attribute__((used)) static struct { const void *a; const void *b; } pair_##replacement \
     __attribute__((section("__DATA,__interpose"))) = { (const void *)&replacement, (const void *)&original };
 INTERPOSE(test_xattr, fsetxattr)
 INTERPOSE(test_times, futimes)
 INTERPOSE(test_close, close)
+
+INTERPOSE(test_mkdirat, mkdirat)

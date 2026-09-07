@@ -41,3 +41,36 @@ final class LimitsAndDisplayTests: XCTestCase {
         }
     }
 }
+
+extension LimitsAndDisplayTests {
+    func testMaximumDeclarationInLimitedSubprocess() throws {
+        let s = try Sandbox()
+        let source = Bundle.module.url(forResource: "resource-driver", withExtension: "c", subdirectory: "Fixtures")!
+        let driver = s.root.appendingPathComponent("resource-driver")
+        let compile = Process(); compile.executableURL = URL(fileURLWithPath: "/usr/bin/clang")
+        compile.arguments = [source.path, "-o", driver.path]
+        try compile.run(); compile.waitUntilExit(); XCTAssertEqual(compile.terminationStatus, 0)
+        try Data(Fixture.archive([Fixture.member(data: [0x10], dm: 13, du: Int(UInt32.max))])).write(to: s.root.appendingPathComponent("input.sit"))
+        let result = try s.command([Sandbox.binary.path, "--quiet", "input.sit", "out"], executable: driver)
+        XCTAssertEqual(result.0, 1, result.2); XCTAssertTrue(result.2.contains("resource limit exceeded"))
+        let rss = Int(result.1.trimmingCharacters(in: .whitespacesAndNewlines).split(separator: "=").last!)!
+        XCTAssertGreaterThan(rss, 0); XCTAssertLessThan(rss, 128 * 1024 * 1024)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: s.out.path), [])
+    }
+    func testTypeControlsAndErrorPathsAreEscaped() throws {
+        var member = Fixture.member("é/name", data: [1], dm: 99)
+        member.replaceSubrange(66..<70, with: [0x1b,13,9,0])
+        Fixture.put(Int(Fixture.crc(Array(member.prefix(110)))), in: &member, at: 110, width: 2)
+        for flags in [[], ["--quiet"], ["--list"]] {
+            let result = try Sandbox().run(Fixture.archive([member]), flags)
+            for text in [result.1, result.2] {
+                XCTAssertFalse(text.contains("\u{1b}")); XCTAssertFalse(text.contains("\r")); XCTAssertFalse(text.contains("\t")); XCTAssertFalse(text.contains("\0"))
+            }
+        }
+        let s = try Sandbox()
+        let result = try s.command(["missing\u{1b}\n.sit"])
+        XCTAssertEqual(result.0, 1); XCTAssertFalse(result.2.contains("\u{1b}")); XCTAssertTrue(result.2.contains("\\n"))
+        XCTAssertEqual(try s.run(Fixture.archive([Fixture.member("é/name", data: [1])])).0, 0)
+        XCTAssertEqual(try s.bytes("é:name"), [1])
+    }
+}

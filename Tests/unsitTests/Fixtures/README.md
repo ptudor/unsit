@@ -9,3 +9,11 @@ cannot be reproduced or claimed by this suite. Record source SHA-256, member
 paths, both fork SHA-256 values, lengths, and CRC outcomes when that corpus is
 made available. The macOS 11 / Swift 5.7 minimum environment is also a separate
 gate when unavailable; local tests record the actual host/toolchain.
+
+`valid_extended_window_wrap.sit` decodes to 66,753 ASCII A bytes followed by B;
+`valid_omitted_symbols.sit` decodes to A. `SHA256SUMS` pins every golden archive.
+The suite also rebuilds independent synthetic containers and metacode streams to
+exercise contradictory declarations, bit alignments, repeat boundaries, flagged
+folders, and recovery. `fault-interposer.c` is loaded only into isolated test
+subprocesses; `resource-driver.c` applies CPU/file-size limits plus a resident-memory watchdog and reports RSS
+for the maximum-declaration test. Both compile with the installed macOS clang.

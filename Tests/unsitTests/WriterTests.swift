@@ -117,8 +117,7 @@ extension WriterTests {
             XCTAssertNotEqual(result.0, 0); XCTAssertTrue(result.2.contains("partial"), result.2)
             XCTAssertFalse(FileManager.default.fileExists(atPath: s.root.appendingPathComponent(destination + "/f").path))
         }
-        let repo = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        let process = Process(); process.executableURL = repo.appendingPathComponent(".build/debug/unsit")
+        let process = Process(); process.executableURL = Sandbox.binary
         process.currentDirectoryURL = s.root; process.arguments = ["input.sit", "out"]
         process.environment = ProcessInfo.processInfo.environment.merging(["DYLD_INSERT_LIBRARIES": lib.path, "UNSIT_TEST_FAULT": "stop_resource"], uniquingKeysWith: { _,n in n })
         try process.run()
@@ -146,5 +145,16 @@ extension WriterTests {
             XCTAssertNotEqual(result.0, 0)
             XCTAssertEqual(try s.bytes("f.partial-22"), member[1] == 0 ? [1,2,3] : [65,65,65,65])
         }
+    }
+}
+
+extension WriterTests {
+    func testCLIFolderPermissionFailureContinues() throws {
+        let s = try Sandbox(), library = try interposer(in: s)
+        let parts = [Fixture.member("blocked", rm: 32), Fixture.member("nested", rm: 32), Fixture.member("child", data: [1]), Fixture.member("nested", rm: 33), Fixture.member("blocked", rm: 33), Fixture.member("later", data: [2])]
+        try Data(Fixture.archive(parts)).write(to: s.root.appendingPathComponent("input.sit"))
+        let result = try s.command(["--quiet", "input.sit", "out"], environment: ["DYLD_INSERT_LIBRARIES": library.path, "UNSIT_TEST_FAULT": "directory"])
+        XCTAssertEqual(result.0, 1); XCTAssertEqual(result.1, ""); XCTAssertTrue(result.2.contains("Permission denied"))
+        XCTAssertEqual(try s.bytes("later"), [2]); XCTAssertFalse(FileManager.default.fileExists(atPath: s.out.appendingPathComponent("child").path))
     }
 }

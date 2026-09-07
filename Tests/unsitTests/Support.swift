@@ -16,7 +16,7 @@ enum Fixture {
     }
     static func member(_ name: String = "f", data: [UInt8] = [], rsrc: [UInt8] = [],
                        rm: UInt8 = 0, dm: UInt8 = 0, du: Int? = nil, ru: Int? = nil,
-                       dc: Int? = nil, rc: Int? = nil, dataCRC: UInt16? = nil,
+                       dc: Int? = nil, rc: Int? = nil, dataCRC: UInt16? = nil, rsrcCRC: UInt16? = nil,
                        mod: UInt32 = 3_000_000_000, nameLength: Int? = nil) -> [UInt8] {
         let raw = Array(name.data(using: .macOSRoman)!)
         var h = [UInt8](repeating: 0, count: 112)
@@ -28,7 +28,7 @@ enum Fixture {
                                 (92, rc ?? rsrc.count), (96, dc ?? data.count)] {
             put(value, in: &h, at: offset, width: 4)
         }
-        put(Int(crc(rsrc)), in: &h, at: 100, width: 2)
+        put(Int(rsrcCRC ?? crc(rsrc)), in: &h, at: 100, width: 2)
         put(Int(dataCRC ?? crc(data)), in: &h, at: 102, width: 2)
         put(Int(crc(Array(h.prefix(110)))), in: &h, at: 110, width: 2)
         return h + rsrc + data
@@ -68,10 +68,13 @@ final class Sandbox {
         try Data(bytes).write(to: root.appendingPathComponent("input.sit"))
         return try command(flags + ["input.sit", "out"])
     }
-    func command(_ args: [String], environment: [String: String] = [:]) throws -> (Int32, String, String) {
+    static var binary: URL {
         let repo = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        return URL(fileURLWithPath: ProcessInfo.processInfo.environment["UNSIT_TEST_BINARY"] ?? repo.appendingPathComponent(".build/debug/unsit").path)
+    }
+    func command(_ args: [String], environment: [String: String] = [:], executable: URL? = nil) throws -> (Int32, String, String) {
         let p = Process()
-        p.executableURL = URL(fileURLWithPath: ProcessInfo.processInfo.environment["UNSIT_TEST_BINARY"] ?? repo.appendingPathComponent(".build/debug/unsit").path)
+        p.executableURL = executable ?? Self.binary
         p.arguments = args; p.currentDirectoryURL = root
         p.environment = ProcessInfo.processInfo.environment.merging(environment, uniquingKeysWith: { _, new in new })
         let stdout = root.appendingPathComponent("stdout"), stderr = root.appendingPathComponent("stderr")

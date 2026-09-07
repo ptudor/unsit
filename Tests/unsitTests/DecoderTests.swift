@@ -134,3 +134,21 @@ extension DecoderTests {
         XCTAssertEqual(try s.bytes("f"), [UInt8](repeating: 65, count: 66753) + [66])
     }
 }
+
+extension DecoderTests {
+    func testDynamicRepeatExtrasTruncationAndArchiveFailures() throws {
+        var first = Bits(); first.meta(8)
+        for _ in 0..<4 { first.meta(36); first.low(63,6) }
+        first.meta(36); first.low(13,6)
+        let bytes = dynamic(first)
+        var valid = try StuffIt13(bytes)
+        XCTAssertEqual(try valid.decompress(expectedLength: 1), [65])
+        for end in 0..<bytes.count {
+            XCTAssertThrowsError(try { var decoder = try StuffIt13(Array(bytes.prefix(end))); return try decoder.decompress(expectedLength: 1) }())
+        }
+        var bad = Bits(); for _ in 0..<321 { bad.meta(0) }
+        for flags in [[], ["--no-verify"]] {
+            XCTAssertNotEqual(try Sandbox().run(Fixture.archive([Fixture.member(data: dynamic(bad), dm: 13, du: 1, dataCRC: 0)]), flags).0, 0)
+        }
+    }
+}

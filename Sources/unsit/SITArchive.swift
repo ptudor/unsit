@@ -46,7 +46,7 @@ struct SITEntry {
 /// Layout (all multi-byte fields big-endian), verified against the sample
 /// archives via the per-header CRC-16/ARC:
 ///   Archive header: 22 bytes — "SIT!", numFiles(u16), archiveLength(u32),
-///                   "rLau", 8 reserved bytes.
+///                   "rLau", version(u8), 7 reserved bytes.
 ///   Each entry: 112-byte header (CRC-16/ARC of bytes 0..109 stored at 110),
 ///   followed, for files, by the compressed resource fork then the compressed
 ///   data fork. Folders are marked by method byte 0x20 (start) / 0x21 (end)

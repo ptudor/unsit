@@ -21,3 +21,18 @@ final class RegressionTests: XCTestCase {
         }
     }
 }
+
+extension RegressionTests {
+    func testGoldenCompressedResourceAndDataForks() throws {
+        let expected = Array("AAAAAAAB".utf8)
+        for name in (1...5).map({ "valid_preset_\($0)" }) + ["valid_dynamic", "valid_dynamic_separate"] {
+            let payload = Array(try Fixture.golden(name).dropFirst(134))
+            let member = Fixture.member(data: payload, rsrc: payload, rm: 13, dm: 13, du: 8, ru: 8, dataCRC: Fixture.crc(expected), rsrcCRC: Fixture.crc(expected))
+            let s = try Sandbox(); let result = try s.run(Fixture.archive([member]))
+            XCTAssertEqual(result.0, 0, result.2)
+            XCTAssertEqual(try s.bytes("f"), expected); XCTAssertEqual(try s.bytes("f/..namedfork/rsrc"), expected)
+        }
+        let s = try Sandbox(); XCTAssertEqual(try s.run(Fixture.golden("valid_omitted_symbols")).0, 0)
+        XCTAssertEqual(try s.bytes("f"), [65])
+    }
+}

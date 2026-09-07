@@ -105,3 +105,30 @@ extension TraversalTests {
         XCTAssertThrowsError(try parent.create("denied"))
     }
 }
+
+extension TraversalTests {
+    func testNestedStructuralLossNeverMergesIdenticalNames() throws {
+        let original = [Fixture.member("outer", rm: 32), Fixture.member("inner", rm: 32), Fixture.member("same", data: [1]), Fixture.member("inner", rm: 33), Fixture.member("same", data: [2]), Fixture.member("outer", rm: 33), Fixture.member("same", data: [3])]
+        for damage in [0,1,3,5] {
+            var parts = original; parts[damage][110] ^= 1
+            let s = try Sandbox(); let result = try s.run(Fixture.archive(parts, count: 2))
+            XCTAssertNotEqual(result.0, 0)
+            let listing = try Sandbox().run(Fixture.archive(parts, count: 2), ["--list"])
+            for (index, byte, trusted) in [(2,UInt8(1),"outer/inner/same"), (4,UInt8(2),"outer/same"), (6,UInt8(3),"same")] {
+                let offset = 22 + parts.prefix(index).reduce(0, { $0 + $1.count })
+                let path = index > damage ? ".unsit-recovery-\(offset)/same" : trusted
+                XCTAssertEqual(try s.bytes(path), [byte])
+                if index > damage { XCTAssertTrue(listing.1.contains(path), listing.1) }
+            }
+        }
+    }
+    func testAppendedEntriesAndUnverifiedCountVersion() throws {
+        let first = Fixture.member("first", data: [1])
+        let s = try Sandbox()
+        XCTAssertNotEqual(try s.run(Fixture.archive([first, Fixture.member("appended", data: [2])], count: 1, total: 22 + first.count)).0, 0)
+        XCTAssertEqual(try s.bytes("first"), [1]); XCTAssertFalse(FileManager.default.fileExists(atPath: s.out.appendingPathComponent("appended").path))
+        var bytes = Fixture.archive([first]); bytes[14] = 2
+        let result = try Sandbox().run(bytes, ["--list"])
+        XCTAssertNotEqual(result.0, 0); XCTAssertTrue(result.2.contains("count validation SKIPPED"))
+    }
+}

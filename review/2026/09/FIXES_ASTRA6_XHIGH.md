@@ -16,6 +16,8 @@ the named local checks passed, not that unavailable historical/platform gates ra
 Batch verification: `swift test` — 10 tests passed. Before confinement, the three
 new confinement tests produced 49 assertions failing against the old executable;
 before display escaping, its control-output regression also failed as expected.
+| Finding | Change | Files touched | Verification result |
+|---|---|---|---|
 | RA6X-004 | Bit consumption now throws at actual compressed EOF and latches truncation; no synthetic padding. Decoder errors retain safe prefixes for the forthcoming partial-member publication step. | `BitReaderLE.swift`, `PrefixCode.swift`, `StuffIt13.swift`, `DecoderTests.swift` | PASS: selector-only CRC-0 in both CRC modes, every byte truncation of all preset/shared/separate/extended golden streams, valid endings at all eight bit alignments. |
 | RA6X-013 | Reject occupied leaves, both prefix conflicts, capacity oversubscription, unsupported widths/counts; use UInt64 canonical capacity arithmetic. | `PrefixCode.swift`, `DecoderTests.swift` | PASS: duplicate insertion, `[1,1,1]`, both prefix orders, count bounds, widths 1/31/32/33, incomplete/single-symbol tables and all golden vectors. |
 | RA6X-014 | Compute repeat emission counts before table writes; reject crossing runs and lengths outside -1...32; retain zero and -1 omission and shared contexts. | `StuffIt13.swift`, `DecoderTests.swift`, `Support.swift` | PASS: metacodes 31–36, minimum/maximum repeats, exact fills/overruns, underflow/width-33, truncated extras, and compatible zero generated via increment(-1)/decrement(1). Reference canonical construction only assigns positive widths; compatibility fixtures decode expected A. |
@@ -30,6 +32,8 @@ match bytes. Thus a terminal match crossing that boundary is allowed by the
 reference contract; a premature end marker or actual EOF remains damage.
 Six decoder tests pass; all preexisting test groups also passed in the preceding
 full run (its new alignment test needed an odd-width literal and was corrected).
+| Finding | Change | Files touched | Verification result |
+|---|---|---|---|
 | RA6X-006 | Validate both signatures and archive extent; return a traversal report for missing headers/payloads, terminal gaps and uncertain recovery in both CLI modes. Check version-1 root-item counts. | `SITArchive.swift`, `main.swift`, `TraversalTests.swift`, `Support.swift`, `README.md` | PASS: all byte truncations of a small archive, missing members, bad tails, empty archive, wrong signature, shorter/longer extent, appended members, nested counts and all requested CLI modes. **SKIPPED:** count enforcement for non-version-1 headers: no versioned corpus/spec establishes their semantics; these now explicitly report incomplete validation/nonzero instead of guessing. |
 | RA6X-011 | Separate marker flags in both method bytes and reject contradictory start/end combinations; preserve raw method flags, keep encrypted nonempty forks unsupported. | `SITArchive.swift`, `TraversalTests.swift`, `README.md` | PASS: markers in either field, 0x30/0x31 and 0xb0/0xb1, plain children at correct paths, encrypted child error and contradictory-marker recovery. |
 | RA6X-007 | Separate CRC from structural candidate checks: bounded name length, coherent markers, safe recovered name and payload extent; report boundary corroboration and ambiguity; retain unsupported real candidates. | `SITArchive.swift`, `TraversalTests.swift` | PASS: zero blocks, impossible CRC-valid headers, seeded random gaps, unsupported real members before supported ones, contradictory markers and EOF lengths. |
@@ -44,6 +48,8 @@ undocumented version extensions. The pinned XADMaster parser ignores this count.
 The unverified version case above is deliberately SKIPPED rather than inferred.
 Full suite passed 20 tests before the additional seeded-gap and blocked-permission
 cases; the expanded traversal group passed 6 tests afterward.
+| Finding | Change | Files touched | Verification result |
+|---|---|---|---|
 | RA6X-017 | Add per-call syscall adapter; retry interrupted data/resource writes, handle positive short writes and explicit zero progress, cap requests at 64 KiB, check fsync/close once with captured errno. Resource-fork positional xattr writes share the member descriptor (no separate resource close). | `WriterIO.swift`, `MacFileWriter.swift`, `WriterTests.swift`, `Fixtures/fault-interposer.c` | PASS: EINTR→success, repeated short writes, zero, ENOSPC, close EIO, exact multi-chunk native fork bytes and request-cap counters. CLI close fault returns nonzero. |
 | RA6X-018 | Return per-field metadata diagnostics, attempt FinderInfo and date independently, retain successful fields/useful bytes, report incomplete restoration including quiet CLI and directory failures. | `MacFileWriter.swift`, `WriterIO.swift`, `main.swift`, `WriterTests.swift`, `Fixtures/fault-interposer.c` | PASS: unsupported xattr/date permission failures on files/directories, native 32-byte layout, independently restored date/flags; injected quiet CLI errors return nonzero. |
 | RA6X-016 | Build each member in an exclusive sibling temporary file, write both forks and metadata, check flush/close, then publish via exclusive atomic rename. Clean handled failures; distinguish incomplete output by `.partial-OFFSET`. | `MacFileWriter.swift`, `WriterIO.swift`, `main.swift`, `WriterTests.swift`, `README.md` | PASS: create/resource/partial resource/zero/ENOSPC/flush/close/metadata/rename faults; original data+resource survive; handled failures leave no temp. Actual child SIGSTOP before resource write then SIGKILL leaves only recognizable temporary output and unchanged originals. Directory-entry crash durability is explicitly not promised. |
@@ -51,6 +57,8 @@ cases; the expanded traversal group passed 6 tests afterward.
 
 Writer checkpoint: six native writer tests pass, including real syscall
 interposition in isolated CLI subprocesses. Earlier full suite passed 26 tests.
+| Finding | Change | Files touched | Verification result |
+|---|---|---|---|
 | RA6X-019 | Keep start metadata in folder frames; restore dates on matching ends after descendant publication, in postorder. Unclosed/uncertain states remain explicitly incomplete. | `main.swift`, `MacFileWriter.swift`, `FinalSemanticsTests.swift`, `README.md` | PASS: empty/nonempty/multilevel folders, both-fork children, failed child, differing end metadata and missing end; start dates survive publication. |
 | RA6X-020 | Preserve zero sentinel; attempt every other Mac date with signed UTC epoch conversion and report platform rejection. | `MacFileWriter.swift`, `FinalSemanticsTests.swift`, `README.md` | PASS: exact timestamps for Mac 1, 2,000,000,000, Unix epoch, ordinary 1990s date and UInt32 max on this APFS host; Mac zero leaves the creation-time value. |
 | RA6X-023 | Honor quiet for extraction summary; preserve warnings/errors and list mode's primary output. | `main.swift`, `FinalSemanticsTests.swift`, `README.md` | PASS: quiet success stdout empty, quiet damaged stdout empty/stderr retained, normal summary and list+quiet contents preserved. |
@@ -59,3 +67,14 @@ interposition in isolated CLI subprocesses. Earlier full suite passed 26 tests.
 Final behavior checkpoint: `swift test` passed 31 tests. The three new date/CLI
 regression tests failed 22 assertions against the preceding executable, then
 passed after these fixes.
+| Finding | Change | Files touched | Verification result |
+|---|---|---|---|
+| RA6X-025 (coverage complete) | Expanded native harness to 38 tests covering the listed regressions, both compressed forks for every preset/shared/separate golden vector, extended/window/omitted vectors, malformed tables, exact CLI status/output, deterministic recovery, syscall faults and process interruption. Pinned synthetic archive hashes; documented separate historical/platform gates. | `Package.swift`, `Tests/unsitTests/*`, `README.md`; archive-header comment in `SITArchive.swift` | PASS: all 38 cases passed across the last full run plus the corrected resource-wrapper rerun. Maximum UInt32 declaration runs under CPU/file-size limits and a resident-memory watchdog, asserts peak RSS <128 MiB and no output growth. Clean committed-source/release/mutation checks are recorded below once run. |
+
+Final supplemental coverage also verifies RA6X-008 nested marker damage with
+identically named files, RA6X-012 actual CLI directory EACCES with later sibling
+recovery, RA6X-006 appended valid headers and explicit unverified-version count
+status, RA6X-021 raw type controls/error paths, and RA6X-014 truncated repeat
+extras. The resource wrapper initially failed before executing unsit because
+Darwin rejected RLIMIT_AS; it now uses supported CPU/file-size limits and an
+active resident-memory watchdog, plus the child's measured peak RSS assertion.
