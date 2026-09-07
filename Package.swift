@@ -9,5 +9,6 @@ let package = Package(
             name: "unsit",
             path: "Sources/unsit"
         ),
+        .testTarget(name: "unsitTests", dependencies: ["unsit"], resources: [.copy("Fixtures")]),
     ]
 )

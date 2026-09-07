@@ -116,3 +116,10 @@ derivative and retain this attribution.
 
 The container parser, CRC-16/ARC implementation, and the macOS fork/metadata
 writer are original and were validated against the sample archives.
+
+## Automated verification
+
+Run `swift test` on macOS from a clean checkout. The native suite builds the CLI,
+uses isolated temporary directories, and includes redistributable synthetic
+archives with explicit expected bytes. See `Tests/unsitTests/Fixtures/README.md`
+for fixture provenance and the separate historical-corpus/minimum-platform gates.
