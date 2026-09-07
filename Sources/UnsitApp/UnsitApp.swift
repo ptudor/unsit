@@ -32,7 +32,7 @@ struct MainView: View {
 
 @available(macOS 12.0, *)
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var window: NSWindow?
     private let model = ExtractionModel.shared
     private let updates = AppUpdateController(
@@ -43,25 +43,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         makeMenu()
-        showWindow()
+        showMainWindow()
     }
     func applicationDidFinishLaunching(_ notification: Notification) {
-        showWindow()
+        showMainWindow()
     }
     func application(_ sender: NSApplication, openFiles filenames: [String]) {
-        showWindow()
+        showMainWindow()
         model.enqueue(filenames.map { URL(fileURLWithPath: $0) })
         sender.reply(toOpenOrPrint: .success)
     }
     func application(_ application: NSApplication, open urls: [URL]) {
-        showWindow()
+        showMainWindow()
         model.enqueue(urls)
     }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        showWindow()
+        showMainWindow()
         return true
     }
-    @objc private func showWindow() {
+    @objc private func showMainWindow(_ sender: Any? = nil) {
         if window == nil {
             let new = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 720, height: 600),
                                styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
@@ -73,12 +73,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             new.setFrameAutosaveName("UnsitMainWindow")
             window = new
         }
+        if window?.isMiniaturized == true { window?.deminiaturize(nil) }
         window?.makeKeyAndOrderFront(nil)
+        if NSApp.isHidden { NSApp.unhide(nil) }
         NSApp.activate(ignoringOtherApps: true)
     }
-    @objc private func openArchives() { showWindow(); model.chooseArchives() }
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        // These application commands remain usable without a key/main window.
+        // In particular, closing the extraction window must not disable reopening.
+        return true
+    }
+    @objc private func openArchives() { showMainWindow(); model.chooseArchives() }
     @objc private func checkUpdates() {
-        showWindow(); updates.isPresented = true
+        showMainWindow(); updates.isPresented = true
         Task { await updates.checkNow() }
     }
     @objc private func showHelp() {
@@ -114,9 +121,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             item(edit, title, NSSelectorFromString(selector), key)
         }
         let windows = menu("Window")
+        item(windows, "Show Unsit", #selector(showMainWindow(_:)), "0", target: self)
+        windows.addItem(.separator())
         item(windows, "Minimize", #selector(NSWindow.performMiniaturize(_:)), "m")
         item(windows, "Zoom", #selector(NSWindow.performZoom(_:)))
-        item(windows, "Show Unsit", #selector(showWindow), target: self)
         NSApp.windowsMenu = windows
         let help = menu("Help")
         item(help, "Unsit Help", #selector(showHelp), target: self)

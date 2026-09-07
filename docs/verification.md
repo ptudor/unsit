@@ -78,6 +78,10 @@ two files found beyond a damaged record. Both outputs and visible recovery paths
 were checked. Disk-image packaging and checksums passed. The updater's first live
 public upgrade remains a publication check.
 
+Window restoration was checked in a separate app instance: three close/reopen
+cycles through **Window → Show Unsit**, reopening with **⌘0**, and restoration
+from a minimized window. The restore command remains enabled without a window.
+
 Minimum macOS 11 CLI / macOS 12 app and Swift 5.7 runtime checks remain separate
 platform gates. A cross-build alone does not establish native Intel runtime
 behavior. Real failing volumes and power-loss durability are not tested; native

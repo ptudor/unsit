@@ -15,6 +15,9 @@ archive gets a fresh output folder beside the original. Use **Save To** to choos
 another destination, then **Open Folder** to see the recovered files in Finder.
 Existing archives and extracted files are preserved.
 
+If you close the window, choose **Window → Show Unsit** (**⌘0**) or click Unsit
+in the Dock to reopen it. Your extraction queue and results remain available.
+
 When damage is detected, the app says **Unsit recovered N files despite archive
 damage**, with complete, partial, and failed counts. It credits files recovered
 beyond damaged records and makes their recovery folders visible in Finder.
