@@ -78,3 +78,24 @@ status, RA6X-021 raw type controls/error paths, and RA6X-014 truncated repeat
 extras. The resource wrapper initially failed before executing unsit because
 Darwin rejected RLIMIT_AS; it now uses supported CPU/file-size limits and an
 active resident-memory watchdog, plus the child's measured peak RSS assertion.
+
+Final verification (2026-09-07):
+
+- PASS — fresh source snapshot made with `git archive b5ee89e`, no build products:
+  `swift test` built successfully and passed all **38 tests**, zero failures.
+- PASS — `swift build -c release`; release `unsit --self-test` reported OK.
+- PASS — `UNSIT_TEST_BINARY=<release executable> swift test --filter RegressionTests`:
+  all three integration tests passed, including both native compressed forks for
+  all five presets and shared/separate dynamic vectors, stored forks, omitted
+  symbols and the public self-test.
+- PASS — mutation check in the disposable source copy: removing the occupied-leaf
+  rejection for RA6X-013 made `DecoderTests.testPrefixValidation` fail. The copy
+  was restored byte-for-byte afterward; production sources were not mutated.
+- PASS — all nine golden archive SHA-256 checks; all 25 review IDs have ledger
+  entries; the original review remains unchanged; `git diff --check` is clean.
+- SKIPPED — non-version-1 `numFiles` enforcement within RA6X-006, as explained
+  above. No guessed count semantics were added; the CLI diagnoses this uncertainty.
+- UNAVAILABLE — private historical archives/hashes and macOS 11 / Swift 5.7 runtime
+  verification. Local proof is macOS 26.6.2 / Swift 6.3.3 on APFS. No private-corpus
+  rerun, minimum-platform run, actual failing-volume test or power-loss durability
+  is claimed. Native syscall-fault and interrupted-process checks did run.
