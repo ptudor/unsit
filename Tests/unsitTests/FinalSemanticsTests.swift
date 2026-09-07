@@ -42,13 +42,15 @@ final class FinalSemanticsTests: XCTestCase {
         let literalValue = try s.command(["--output", "--self-test", "input.sit"])
         XCTAssertEqual(literalValue.0, 0, literalValue.2)
         XCTAssertEqual(try Data(contentsOf: s.root.appendingPathComponent("--self-test/f")), Data([1]))
-        for args in [["-o","chosen","input.sit","positional"], ["--self-test","input.sit","mixed"], ["--output"], ["--max-depth"], ["--self-test","--list"], ["-o","a","-o","b","input.sit"]] {
+        for args in [["-o","chosen","input.sit","positional"], ["--self-test","input.sit","mixed"], ["--version","input.sit"], ["--version","--self-test"], ["--output"], ["--max-depth"], ["--self-test","--list"], ["-o","a","-o","b","input.sit"]] {
             let result = try s.command(args)
             XCTAssertEqual(result.0, 2, args.joined(separator: " ")); XCTAssertFalse(result.2.isEmpty)
         }
         XCTAssertFalse(FileManager.default.fileExists(atPath: s.root.appendingPathComponent("chosen").path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: s.root.appendingPathComponent("positional").path))
         XCTAssertEqual(try s.command(["--self-test"]).0, 0)
+        let version = try s.command(["--version"])
+        XCTAssertEqual(version.0, 0); XCTAssertEqual(version.1, "unsit \(UnsitVersion.current)\n")
         let help = try s.command(["--help"]); XCTAssertEqual(help.0, 0); XCTAssertTrue(help.1.contains("--self-test"))
         try Data(archive).write(to: s.root.appendingPathComponent("-archive.sit"))
         XCTAssertEqual(try s.command(["--", "-archive.sit", "-out"]).0, 0)

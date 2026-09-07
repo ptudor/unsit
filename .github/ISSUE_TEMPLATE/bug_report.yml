@@ -1,0 +1,21 @@
+name: Bug report
+description: Report an extraction or app problem using a small shareable example.
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Unsit version, macOS version, and Mac architecture
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: What happened?
+      description: Include steps, expected results, and whether you used the app or CLI. Redact private filenames and contents.
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: Diagnostics or synthetic example
+      description: Use the app's Copy Details button or CLI warnings. Only attach archives you have permission to share.

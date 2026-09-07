@@ -1,0 +1,90 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      release_version:
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check generated format data and fixture hashes
+        run: |
+          python3 scripts/generate-codebooks.py --check
+          python3 -m compileall -q scripts
+          cd Tests/unsitTests/Fixtures
+          sha256sum --check SHA256SUMS
+      - name: Check workflow syntax
+        env:
+          ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+        run: |
+          curl --fail --location --silent --show-error https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz -o "$RUNNER_TEMP/actionlint.tar.gz"
+          printf '%s  %s\n' "$ACTIONLINT_SHA256" "$RUNNER_TEMP/actionlint.tar.gz" | sha256sum --check
+          tar -xzf "$RUNNER_TEMP/actionlint.tar.gz" -C "$RUNNER_TEMP" actionlint
+          "$RUNNER_TEMP/actionlint" -color
+
+  macos:
+    name: Test and package (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x86_64
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Record platform and toolchain
+        run: |
+          sw_vers
+          swift --version
+      - name: Run native extraction and app-helper tests
+        run: swift test
+      - name: Build app and release assets
+        env:
+          RELEASE_VERSION: ${{ inputs.release_version }}
+          BUILD_ARCH: ${{ matrix.arch }}
+        run: |
+          if [ -n "$RELEASE_VERSION" ]; then
+            python3 scripts/package.py --arch "$BUILD_ARCH" --version "$RELEASE_VERSION" --release
+          else
+            python3 scripts/package.py --arch "$BUILD_ARCH"
+          fi
+      - name: Verify packaged helper with native integration tests
+        run: UNSIT_TEST_BINARY="$PWD/dist/Unsit.app/Contents/MacOS/unsit" swift test --filter RegressionTests
+      - name: Save downloadable builds
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: unsit-macos-${{ matrix.arch }}
+          path: |
+            dist/*.zip
+            dist/*.dmg
+            dist/*.update.json
+            dist/*.tar.gz
+            dist/checksums-macos-*.txt
+          if-no-files-found: error
+          retention-days: 14

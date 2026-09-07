@@ -16,7 +16,7 @@ enum SITError: Error, CustomStringConvertible {
 struct SITEntry {
     enum Kind { case file, folderStart, folderEnd }
     var hierarchyUncertain = false
-    var recoveryDirectory: String { ".unsit-recovery-\(offset)" }
+    var recoveryDirectory: String { "unsit-recovery-\(offset)" }
     var kind: Kind
     var name: String                 // decoded, path-separator-safe
     var rawName: [UInt8]             // original Mac Roman bytes
@@ -144,6 +144,9 @@ struct SITArchive {
         var diagnostics: [String] = []
         var skippedBytes = 0
         var members = 0
+        var damagedHeaderGaps = 0
+        var structureDamaged: Bool { damagedHeaderGaps > 0 || diagnostics.count > (validationIncomplete ? 1 : 0) }
+        var validationIncomplete = false
         var complete: Bool { diagnostics.isEmpty }
     }
 
@@ -154,9 +157,9 @@ struct SITArchive {
         let e = entry(at: offset)
         let rm = e.rsrcMethod & 0x6f, dm = e.dataMethod & 0x6f
         guard !((rm == 32 && dm == 33) || (rm == 33 && dm == 32)) else { return false }
-        if e.kind != .file {
-            guard e.rsrcCompressedLength == 0, e.dataCompressedLength == 0 else { return false }
-        } else if e.rawName.isEmpty { return false }
+        // Folder records can carry nonzero aggregate lengths. They have no
+        // inline fork payload; their next record still starts 112 bytes later.
+        if e.kind == .file && e.rawName.isEmpty { return false }
         if recovery {
             if e.kind != .folderEnd, (try? MacFileWriter.validate(e.name)) == nil { return false }
             guard payloadEnd(e) <= extent else { return false }
@@ -172,8 +175,10 @@ struct SITArchive {
     /// onResync receives invalid start and skipped length, never the recovered
     /// offset. Both CLI consumers compute start + skipped for their diagnostics.
     @discardableResult
-    func forEachEntry(onResync: (Int, Int) -> Void, _ body: (SITEntry) throws -> Void) throws -> TraversalReport {
+    func forEachEntry(onResync: (Int, Int) -> Void, onReport: (TraversalReport) -> Void = { _ in },
+                      _ body: (SITEntry) throws -> Void) throws -> TraversalReport {
         var report = TraversalReport()
+        defer { onReport(report) }
         if declaredExtent != data.count {
             report.diagnostics.append("declared archive extent \(declaredExtent) differs from physical length \(data.count); parsing only 22..\(extent)")
         }
@@ -184,6 +189,7 @@ struct SITArchive {
         var recoveryWork = 0
         while pos < extent {
             if !plausible(at: pos, recovery: false) {
+                report.damagedHeaderGaps += 1
                 let start = pos
                 var scan = pos + 1
                 while scan <= extent - Self.entryHeaderSize {
@@ -240,6 +246,7 @@ struct SITArchive {
                 report.diagnostics.append("archive count mismatch: declared \(numFiles) root items, traversed \(rootMembers)")
             }
         } else {
+            report.validationIncomplete = true
             report.diagnostics.append("count validation SKIPPED for unverified classic archive version \(version)")
         }
         return report
@@ -249,21 +256,32 @@ struct SITArchive {
         var bytes: [UInt8]
         var absent: Bool
         var diagnostics: [String]
+        var damageDetected = false
+        var unsupported = false
         var complete: Bool { diagnostics.isEmpty }
     }
 
     func recoverFork(method: UInt8, offset: Int, compressedLength: Int, uncompressedLength: Int,
                      crc: UInt16, verify: Bool) -> ForkOutcome {
         var result: ForkOutcome
+        var canVerify = true
         do {
             let bytes = try decompressFork(method: method, offset: offset, compressedLength: compressedLength, uncompressedLength: uncompressedLength)
             result = ForkOutcome(bytes: bytes, absent: compressedLength == 0 && uncompressedLength == 0, diagnostics: [])
         } catch let damage as ForkDamage {
-            result = ForkOutcome(bytes: damage.bytes, absent: false, diagnostics: [damage.description])
+            result = ForkOutcome(bytes: damage.bytes, absent: false, diagnostics: [damage.description], damageDetected: true)
+        } catch let error as ExtractError {
+            canVerify = false
+            result = ForkOutcome(bytes: [], absent: false, diagnostics: [error.description], unsupported: true)
         } catch {
+            canVerify = false
             result = ForkOutcome(bytes: [], absent: false, diagnostics: [String(describing: error)])
+            result.damageDetected = error is BitReaderError || error is PrefixCodeError || error is StuffIt13Error || error is SITError
         }
-        if verify && !result.absent && CRC16.checksum(result.bytes) != crc { result.diagnostics.append("CRC mismatch") }
+        if canVerify && verify && !result.absent && CRC16.checksum(result.bytes) != crc {
+            result.diagnostics.append("CRC mismatch")
+            result.damageDetected = true
+        }
         return result
     }
 

@@ -1,88 +1,81 @@
-import Foundation
+// Copyright (c) 2026 Patrick Tudor. SPDX-License-Identifier: MIT
 
-enum PrefixCodeError: Error {
-    case invalidBitstream
-    case malformedTable
-}
+enum PrefixCodeError: Error { case invalidBitstream, malformedTable }
 
-/// A binary prefix (Huffman) code decoded bit-at-a-time.
-///
-/// Codes are described by a "high-bit-first" integer value and a bit length:
-/// the path from the root follows the value's bits from the most-significant
-/// (bit `length-1`) down to bit 0. Bits are pulled from the stream LSB-first
-/// (see `BitReaderLE`), so the first bit consumed corresponds to the most
-/// significant bit of the code value — matching XADMaster's `...CodeLE` path.
+/// Canonical codes are decoded by numeric ranges, one range per bit width.
+/// Explicit codes (used by the format's metacode) use sentinel-prefixed keys.
 final class PrefixCode {
-    // Node arrays: child[node][bit]; -1 means "no branch". A node is a leaf
-    // iff `symbol[node] >= 0`, in which case it has no children.
-    private var child0: [Int] = [-1]
-    private var child1: [Int] = [-1]
-    private var symbol: [Int] = [-1]
-
-    private func newNode() -> Int {
-        child0.append(-1)
-        child1.append(-1)
-        symbol.append(-1)
-        return symbol.count - 1
+    private struct Range {
+        var first: UInt64 = 0
+        var symbols: [Int] = []
     }
+    private var ranges: [Range]?
+    private var explicit: [UInt64: Int] = [:]
+    private var longest = 0
 
-    /// Insert `value` at the code given by `hbf` (high-bit-first) of `length` bits.
     func insert(hbf: UInt32, length: Int, value: Int) throws {
-        guard (1...32).contains(length), value >= 0, UInt64(hbf) < (UInt64(1) << length) else { throw PrefixCodeError.malformedTable }
-        var node = 0
-        for k in 0..<length {
-            let bit = Int((hbf >> UInt32(length - 1 - k)) & 1)
-            if symbol[node] >= 0 { throw PrefixCodeError.malformedTable } // prefix conflict
-            var next = bit == 0 ? child0[node] : child1[node]
-            if next == -1 {
-                next = newNode()
-                if bit == 0 { child0[node] = next } else { child1[node] = next }
-            }
-            node = next
+        guard ranges == nil, (1...32).contains(length), value >= 0,
+              UInt64(hbf) < (UInt64(1) << length) else { throw PrefixCodeError.malformedTable }
+        let key = (UInt64(1) << length) | UInt64(hbf)
+        var ancestor = key
+        while ancestor > 0 {
+            guard explicit[ancestor] == nil else { throw PrefixCodeError.malformedTable }
+            ancestor >>= 1
         }
-        if symbol[node] >= 0 || child0[node] != -1 || child1[node] != -1 { throw PrefixCodeError.malformedTable }
-        symbol[node] = value
+        for existing in explicit.keys {
+            let existingWidth = 63 - existing.leadingZeroBitCount
+            if existingWidth > length && existing >> (existingWidth - length) == key {
+                throw PrefixCodeError.malformedTable
+            }
+        }
+        explicit[key] = value
+        longest = max(longest, length)
     }
 
-    /// Build a canonical code from per-symbol bit lengths (`shortestCodeIsZeros`).
-    /// Symbols with length <= 0 are omitted. This reproduces XADPrefixCode's
-    /// `initWithLengths:...shortestCodeIsZeros:YES` assignment exactly.
     static func canonical(lengths: [Int], count: Int) throws -> PrefixCode {
-        guard count >= 0, count <= lengths.count,
-              lengths.prefix(count).allSatisfy({ (-1...32).contains($0) }) else { throw PrefixCodeError.malformedTable }
-        let code = PrefixCode()
-        var value: UInt64 = 0
-        for length in 1...32 {
-            for i in 0..<count where lengths[i] == length {
-                guard value < (UInt64(1) << length) else { throw PrefixCodeError.malformedTable }
-                try code.insert(hbf: UInt32(value), length: length, value: i)
-                value += 1
-            }
-            value <<= 1
+        guard (0...lengths.count).contains(count) else { throw PrefixCodeError.malformedTable }
+        var groups = [Range](repeating: Range(), count: 33)
+        for symbol in 0..<count {
+            let width = lengths[symbol]
+            guard (-1...32).contains(width) else { throw PrefixCodeError.malformedTable }
+            if width > 0 { groups[width].symbols.append(symbol) }
         }
+        var first: UInt64 = 0
+        let code = PrefixCode()
+        for width in 1...32 {
+            first = (first + UInt64(groups[width - 1].symbols.count)) << 1
+            guard first + UInt64(groups[width].symbols.count) <= UInt64(1) << width else {
+                throw PrefixCodeError.malformedTable
+            }
+            groups[width].first = first
+            if !groups[width].symbols.isEmpty { code.longest = width }
+        }
+        code.ranges = groups
         return code
     }
 
-    /// Decode the next symbol from the reader.
     func next(_ reader: inout BitReaderLE) throws -> Int {
-        var node = 0
-        while symbol[node] < 0 {
-            let bit = try reader.bit()
-            let next = bit == 0 ? child0[node] : child1[node]
-            if next == -1 { throw PrefixCodeError.invalidBitstream }
-            node = next
+        guard longest > 0 else { throw PrefixCodeError.invalidBitstream }
+        var value: UInt64 = 0
+        var key: UInt64 = 1
+        for width in 1...longest {
+            let bit = UInt64(try reader.bit())
+            value = value * 2 + bit
+            if let ranges = ranges {
+                let group = ranges[width]
+                if value >= group.first {
+                    let index = value - group.first
+                    if index < UInt64(group.symbols.count) { return group.symbols[Int(index)] }
+                }
+            } else {
+                key = key * 2 + bit
+                if let symbol = explicit[key] { return symbol }
+            }
         }
-        return symbol[node]
+        throw PrefixCodeError.invalidBitstream
     }
 }
 
-/// Reverse the low `length` bits of `value`.
 func reverseBits(_ value: UInt32, length: Int) -> UInt32 {
-    var v = value
-    var r: UInt32 = 0
-    for _ in 0..<length {
-        r = (r << 1) | (v & 1)
-        v >>= 1
-    }
-    return r
+    (0..<length).reduce(UInt32(0)) { ($0 << 1) | ((value >> $1) & 1) }
 }

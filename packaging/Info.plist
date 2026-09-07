@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+    <key>CFBundleName</key><string>Unsit</string>
+    <key>CFBundleDisplayName</key><string>Unsit</string>
+    <key>CFBundleExecutable</key><string>UnsitApp</string>
+    <key>CFBundleIdentifier</key><string>net.ptudor.Unsit</string>
+    <key>CFBundlePackageType</key><string>APPL</string>
+    <key>CFBundleIconFile</key><string>AppIcon</string>
+    <key>LSMinimumSystemVersion</key><string>12.0</string>
+    <key>NSHighResolutionCapable</key><true/>
+    <key>NSHumanReadableCopyright</key><string>Copyright © 2026 Patrick Tudor. MIT License.</string>
+    <key>CFBundleDocumentTypes</key><array><dict>
+        <key>CFBundleTypeName</key><string>Classic StuffIt archive</string>
+        <key>CFBundleTypeRole</key><string>Viewer</string>
+        <key>LSHandlerRank</key><string>Alternate</string>
+        <key>LSItemContentTypes</key><array><string>com.allume.stuffit-archive</string></array>
+        <key>CFBundleTypeExtensions</key><array><string>sit</string></array>
+    </dict></array>
+    <key>UTImportedTypeDeclarations</key><array><dict>
+        <key>UTTypeIdentifier</key><string>com.allume.stuffit-archive</string>
+        <key>UTTypeDescription</key><string>Classic StuffIt archive</string>
+        <key>UTTypeConformsTo</key><array><string>public.archive</string></array>
+        <key>UTTypeTagSpecification</key><dict>
+            <key>public.filename-extension</key><array><string>sit</string></array>
+            <key>public.mime-type</key><string>application/x-stuffit</string>
+        </dict>
+    </dict></array>
+</dict></plist>

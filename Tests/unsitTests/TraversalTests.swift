@@ -3,6 +3,29 @@ import XCTest
 @testable import unsit
 
 final class TraversalTests: XCTestCase {
+    func testFolderSummaryLengthsAreNotPayloadLengths() throws {
+        let parts = [
+            Fixture.member("outer", rm: 32, dm: 32, du: 12345, dc: 9999, rc: 4321),
+            Fixture.member("inner", rm: 0x30, du: 8765, dc: 7654),
+            Fixture.member("child", data: [1, 2], rsrc: [3, 4]),
+            Fixture.member("inner", rm: 0x31, du: 8765, dc: 7542),
+            Fixture.member("outer", rm: 33, dm: 33, du: 12345, dc: 9887, rc: 4321),
+            Fixture.member("sibling", data: [5]),
+        ]
+        let s = try Sandbox()
+        let bytes = Fixture.archive(parts, count: 2)
+        let result = try s.run(bytes)
+        XCTAssertEqual(result.0, 0, result.2)
+        XCTAssertEqual(try s.bytes("outer/inner/child"), [1, 2])
+        XCTAssertEqual(try s.bytes("outer/inner/child/..namedfork/rsrc"), [3, 4])
+        XCTAssertEqual(try s.bytes("sibling"), [5])
+        let listing = try Sandbox().run(bytes, ["--list"])
+        XCTAssertEqual(listing.0, 0, listing.2)
+        XCTAssertFalse(listing.1.contains("unsit-recovery-"))
+        let date = try FileManager.default.attributesOfItem(atPath: s.out.appendingPathComponent("outer").path)[.modificationDate] as? Date
+        XCTAssertEqual(date?.timeIntervalSince1970, 3_000_000_000 - 2_082_844_800)
+    }
+
     func testContainerBoundsAndTruncations() throws {
         let valid = Fixture.archive([Fixture.member(data: [1,2])])
         for end in 0..<valid.count {
@@ -45,7 +68,7 @@ final class TraversalTests: XCTestCase {
         for flags in [[], ["--list"]] {
             let s = try Sandbox(); let result = try s.run(Fixture.archive(parts, count: 2), flags)
             XCTAssertNotEqual(result.0, 0); XCTAssertTrue(result.2.contains("resynced at offset \(offset)"), result.2)
-            if flags.isEmpty { XCTAssertEqual(try s.bytes(".unsit-recovery-\(offset)/good"), [4]) }
+            if flags.isEmpty { XCTAssertEqual(try s.bytes("unsit-recovery-\(offset)/good"), [4]) }
         }
         let exact = Fixture.archive([Fixture.member("first", data: [1,2,3]), [UInt8](repeating: 63, count: 17), Fixture.member("second", data: [4])], count: 2)
         let result = try Sandbox().run(exact, ["--list"])
@@ -61,10 +84,10 @@ final class TraversalTests: XCTestCase {
             let s = try Sandbox(); let result = try s.run(Fixture.archive(parts, count: 2))
             XCTAssertNotEqual(result.0, 0); XCTAssertTrue(result.2.contains("uncertain"), result.2)
             let offset = 22 + parts.dropLast().reduce(0, { $0 + $1.count })
-            XCTAssertEqual(try s.bytes(".unsit-recovery-\(offset)/root_file"), [2])
+            XCTAssertEqual(try s.bytes("unsit-recovery-\(offset)/root_file"), [2])
             XCTAssertFalse(FileManager.default.fileExists(atPath: s.out.appendingPathComponent("dir/root_file").path))
             let listing = try Sandbox().run(Fixture.archive(parts, count: 2), ["--list"])
-            XCTAssertTrue(listing.1.contains(".unsit-recovery-\(offset)/root_file"), listing.1)
+            XCTAssertTrue(listing.1.contains("unsit-recovery-\(offset)/root_file"), listing.1)
         }
         for parts in [[Fixture.member("dir", rm: 32)], [Fixture.member("dir", rm: 33)]] {
             XCTAssertNotEqual(try Sandbox().run(Fixture.archive(parts), ["--list"]).0, 0)
@@ -82,7 +105,7 @@ extension TraversalTests {
             let offset = 22 + 64 + 113
             let s = try Sandbox(); let result = try s.run(Fixture.archive(parts, count: 2))
             XCTAssertNotEqual(result.0, 0); XCTAssertTrue(result.2.contains("unsupported compression method 99"), result.2)
-            XCTAssertEqual(try s.bytes(".unsit-recovery-\(offset)/good"), [2])
+            XCTAssertEqual(try s.bytes("unsit-recovery-\(offset)/good"), [2])
         }
         let bad = Fixture.member("dir", rm: 0x30, dm: 0x31)
         let result = try Sandbox().run(Fixture.archive([bad, Fixture.member("good", data: [1])]), ["--list"])
@@ -116,7 +139,7 @@ extension TraversalTests {
             let listing = try Sandbox().run(Fixture.archive(parts, count: 2), ["--list"])
             for (index, byte, trusted) in [(2,UInt8(1),"outer/inner/same"), (4,UInt8(2),"outer/same"), (6,UInt8(3),"same")] {
                 let offset = 22 + parts.prefix(index).reduce(0, { $0 + $1.count })
-                let path = index > damage ? ".unsit-recovery-\(offset)/same" : trusted
+                let path = index > damage ? "unsit-recovery-\(offset)/same" : trusted
                 XCTAssertEqual(try s.bytes(path), [byte])
                 if index > damage { XCTAssertTrue(listing.1.contains(path), listing.1) }
             }

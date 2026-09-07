@@ -69,8 +69,14 @@ final class Sandbox {
         return try command(flags + ["input.sit", "out"])
     }
     static var binary: URL {
-        let repo = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        return URL(fileURLWithPath: ProcessInfo.processInfo.environment["UNSIT_TEST_BINARY"] ?? repo.appendingPathComponent(".build/debug/unsit").path)
+        if let override = ProcessInfo.processInfo.environment["UNSIT_TEST_BINARY"] {
+            return URL(fileURLWithPath: override)
+        }
+        // SwiftPM places the CLI beside this test bundle, including release
+        // configurations and custom --scratch-path builds. Never pick a stale
+        // executable from the source checkout's default build directory.
+        return Bundle(for: RegressionTests.self).bundleURL
+            .deletingLastPathComponent().appendingPathComponent("unsit")
     }
     func command(_ args: [String], environment: [String: String] = [:], executable: URL? = nil) throws -> (Int32, String, String) {
         let p = Process()

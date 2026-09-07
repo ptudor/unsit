@@ -1,0 +1,27 @@
+{
+  "codebooks_preset_1": {
+    "length": 75177,
+    "sha256": "f02d2e22982d95c293cebc1b0623b3a626e58fc34c00b4b6dc5cc94fa963bd8e",
+    "archive_sha256": "b8528168f26ea29754db52b91c5a39be7a2101753aaca0dbfd8ea3e9e1e434a2"
+  },
+  "codebooks_preset_2": {
+    "length": 78385,
+    "sha256": "e0711505d6f99820837c2de6eb2557fa4d877400894f9b20cd174c7041a77ee2",
+    "archive_sha256": "ac1690a9b72edec742eaf86211e5172e2684a0deec41c39ed127cb83fdf9f8cd"
+  },
+  "codebooks_preset_3": {
+    "length": 82549,
+    "sha256": "20de72e78634215719eca0599594a3ec9c21f7003ddaad86fe336a655f46d8df",
+    "archive_sha256": "84bb1dbd3d9d019fdbb58c5c6181c46b69b894a56b94d845559a4b88f6e69e92"
+  },
+  "codebooks_preset_4": {
+    "length": 75177,
+    "sha256": "f02d2e22982d95c293cebc1b0623b3a626e58fc34c00b4b6dc5cc94fa963bd8e",
+    "archive_sha256": "07aa6e682b428796b5387cbfe3b9f1666335246a107df112ba50208c477ac3bd"
+  },
+  "codebooks_preset_5": {
+    "length": 75177,
+    "sha256": "f02d2e22982d95c293cebc1b0623b3a626e58fc34c00b4b6dc5cc94fa963bd8e",
+    "archive_sha256": "bb9c437d5ba9f53dc93e540c629b3fce28c58b6547b37cc423c49e392c013958"
+  }
+}

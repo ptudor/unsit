@@ -1,0 +1,9 @@
+* text=auto
+*.swift text eol=lf
+*.py text eol=lf
+*.yml text eol=lf
+*.md text eol=lf
+*.sit binary
+*.png binary
+*.icns binary
+review/ export-ignore

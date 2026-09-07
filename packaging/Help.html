@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Unsit Help</title>
+<style>body{font:17px/1.6 system-ui,sans-serif;max-width:42rem;margin:4rem auto;padding:0 1.5rem;color:#253449}h1,h2{line-height:1.2}code{font-size:.9em}@media(prefers-color-scheme:dark){body{background:#18202b;color:#e2e9f1}}</style>
+<h1>Open your classic Mac archives</h1>
+<p>Drop one or more classic StuffIt <code>.sit</code> files into Unsit, or choose <strong>File → Open Archives</strong>. Each archive is extracted into a new folder beside the original.</p>
+<p>To choose a different location, use <strong>Save To → Choose Folder</strong> before adding archives. <strong>Open Folder</strong> shows the recovered files in Finder.</p>
+<h2>Understanding the results</h2>
+<p>When an archive is damaged, Unsit tells you how many files it recovered despite that damage. Each result shows complete files, partial files, and identified files that could not be saved. <strong>Details</strong> explains the problems.</p>
+<p>Damage may be bitrot, truncation, or an archive that was written incorrectly. Unsit preserves what it can recover; it does not claim to repair missing bytes. Damaged regions can contain additional files that cannot be counted.</p>
+<p>A filename ending in <code>.partial-</code> followed by a number has an incomplete or damaged fork, or metadata that could not be restored. Preserve that file: its other fork may still be intact.</p>
+<p>After a damaged folder record, files may appear inside folders named <code>unsit-recovery-</code> followed by a number. Their original folder placement could not be established reliably. The number identifies the archive position.</p>
+<p>Recovery folders are visible in Finder. Unsit also tells you how many files it found beyond damaged archive records, so you can see what the recovery work saved.</p>
+<p>A warning about unverified archive counts concerns the container's bookkeeping. Fork checksum checks still run. Unsupported compression methods and disk or metadata errors are warnings, without being labelled bitrot.</p>
+<h2>Keeping Unsit up to date</h2>
+<p>Choose <strong>Unsit → Check for Updates</strong>. Stable release builds check automatically, daily by default. You can change the interval or turn automatic checks off. Checks contact GitHub; your archives and extracted files stay on your Mac.</p>
+<p><strong>Download Update</strong> verifies the installer before opening it. Finish extracting and quit Unsit, then drag the new app into Applications. macOS still performs its normal downloaded-app checks. Development snapshots leave automatic checking off by default.</p>
+<h2>What stays with your files</h2>
+<p>Unsit restores the data fork, resource fork, file type, creator, Finder flags, and modification dates. Use a Mac filesystem that supports resource forks, such as APFS. Some old applications still need a compatible classic Mac environment.</p>
+<p>Existing files and original archives are preserved. <strong>Stop</strong> stops the current extraction and queued archives; files already recovered stay in their output folders.</p>
+<h2>Supported archives</h2>
+<p>Unsit supports classic <code>SIT!</code> containers with stored or method-13 compression. StuffIt 5 containers, <code>.sitx</code>, encrypted forks, and other compression methods are not supported.</p>
+<p>Unsit is open source under the MIT license. The app bundle contains its license and attribution notices.</p>
+</html>

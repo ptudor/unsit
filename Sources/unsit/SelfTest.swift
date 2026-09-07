@@ -1,7 +1,7 @@
 import Foundation
 
 /// Fast, dependency-free sanity checks run via `unsit --self-test`. These guard
-/// the hand-transcribed constant tables and the core primitives against
+/// the generated constant tables and the core primitives against
 /// regressions, independent of any archive on disk.
 enum SelfTest {
     static func run() -> Int32 {

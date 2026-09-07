@@ -1,0 +1,10 @@
+name: Feature request
+description: Describe a workflow or format you would like supported.
+body:
+  - type: textarea
+    id: request
+    attributes:
+      label: What would you like to do?
+      description: Explain the task, current limitation, and any shareable format examples.
+    validations:
+      required: true

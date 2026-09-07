@@ -5,11 +5,12 @@ struct Options {
     var outputDir: String?
     var list = false
     var quiet = false
+    var json = false
     var noVerify = false
     var limits = Limits()
 }
 
-enum CLIAction { case help, selfTest, archive(Options) }
+enum CLIAction { case help, version, selfTest, archive(Options) }
 
 let helpText = """
 unsit — extract classic StuffIt (SIT!) archives
@@ -19,8 +20,10 @@ Usage: unsit [options] <archive.sit> [output-directory]
   -l, --list        List contents (also with --quiet)
   -o, --output DIR  Extract into DIR
   -q, --quiet       Only warnings/errors during extraction
+      --json        Write an extraction report to stdout; warnings to stderr
       --no-verify   Skip fork CRC checks, retain structural checks
       --self-test   Run built-in table/CRC checks
+      --version     Show version
   -h, --help        Show help successfully
       --           End options; remaining tokens are paths
 
@@ -38,7 +41,7 @@ archive actions are usage errors. Existing output is preserved.
 func parseArguments(_ args: [String]) throws -> CLIAction {
     var opts = Options(archivePath: "")
     var positional: [String] = []
-    var index = 0, optionsEnded = false, selfTest = false, help = false
+    var index = 0, optionsEnded = false, selfTest = false, help = false, version = false
     var extractionOption = false
     func invalid(_ message: String) -> MacFileWriter.WriteError { .init(description: message) }
     func value(for option: String) throws -> String {
@@ -53,8 +56,10 @@ func parseArguments(_ args: [String]) throws -> CLIAction {
         case "--": optionsEnded = true
         case "-h", "--help": help = true
         case "--self-test": selfTest = true
+        case "--version": version = true
         case "-l", "--list": opts.list = true; extractionOption = true
         case "-q", "--quiet": opts.quiet = true; extractionOption = true
+        case "--json": opts.json = true; extractionOption = true
         case "--no-verify": opts.noVerify = true; extractionOption = true
         case "-o", "--output":
             guard opts.outputDir == nil else { throw invalid("conflicting output destinations") }
@@ -77,6 +82,10 @@ func parseArguments(_ args: [String]) throws -> CLIAction {
         }
     }
     if help { return .help }
+    if version {
+        guard positional.isEmpty, !extractionOption, !selfTest else { throw invalid("--version conflicts with archive/extraction arguments") }
+        return .version
+    }
     if selfTest {
         guard positional.isEmpty, !extractionOption else { throw invalid("--self-test conflicts with archive/extraction arguments") }
         return .selfTest
@@ -88,5 +97,6 @@ func parseArguments(_ args: [String]) throws -> CLIAction {
         opts.outputDir = positional[1]
     }
     guard opts.outputDir != "" else { throw invalid("output directory must not be empty") }
+    guard !(opts.json && opts.list) else { throw invalid("--json is for extraction and conflicts with --list") }
     return .archive(opts)
 }
