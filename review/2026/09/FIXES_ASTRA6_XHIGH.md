@@ -51,3 +51,11 @@ cases; the expanded traversal group passed 6 tests afterward.
 
 Writer checkpoint: six native writer tests pass, including real syscall
 interposition in isolated CLI subprocesses. Earlier full suite passed 26 tests.
+| RA6X-019 | Keep start metadata in folder frames; restore dates on matching ends after descendant publication, in postorder. Unclosed/uncertain states remain explicitly incomplete. | `main.swift`, `MacFileWriter.swift`, `FinalSemanticsTests.swift`, `README.md` | PASS: empty/nonempty/multilevel folders, both-fork children, failed child, differing end metadata and missing end; start dates survive publication. |
+| RA6X-020 | Preserve zero sentinel; attempt every other Mac date with signed UTC epoch conversion and report platform rejection. | `MacFileWriter.swift`, `FinalSemanticsTests.swift`, `README.md` | PASS: exact timestamps for Mac 1, 2,000,000,000, Unix epoch, ordinary 1990s date and UInt32 max on this APFS host; Mac zero leaves the creation-time value. |
+| RA6X-023 | Honor quiet for extraction summary; preserve warnings/errors and list mode's primary output. | `main.swift`, `FinalSemanticsTests.swift`, `README.md` | PASS: quiet success stdout empty, quiet damaged stdout empty/stderr retained, normal summary and list+quiet contents preserved. |
+| RA6X-024 | One parser handles actions, option values and end-of-options; reject conflicting output/action forms before extraction; help/self-test return success. | `CLI.swift`, `main.swift`, `FinalSemanticsTests.swift`, `README.md` | PASS: literal `--output --self-test`, both output forms conflict, repeated output conflict, standalone/mixed self-test, dash-prefixed paths after `--`, missing values, help and ordinary extraction. |
+
+Final behavior checkpoint: `swift test` passed 31 tests. The three new date/CLI
+regression tests failed 22 assertions against the preceding executable, then
+passed after these fixes.

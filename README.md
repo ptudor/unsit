@@ -181,3 +181,15 @@ orphans. File `fsync` and close are checked; atomic visibility is guaranteed for
 publication, but crash/power-loss durability of the directory entry is not
 promised. Resource forks use bounded positional `fsetxattr` on the member's
 file descriptor, avoiding a second pathname-based resource open/close.
+
+Folder dates come from the start marker and are restored after all child
+publication at the matching end marker. Unclosed/uncertain folders are diagnosed
+and are not assigned an invented completion date. Nonzero Mac dates are converted
+with signed UTC arithmetic, including pre-1970 values; zero remains the missing
+date sentinel. Actual destination failures are reported.
+
+`--quiet` leaves successful extraction stdout empty; `--list --quiet` still emits
+the requested listing. `--` makes all remaining tokens literal paths. An output
+option consumes its next token even if it spells `--self-test`. Self-test mixed
+with archive/extraction arguments and duplicate/conflicting output forms are
+usage errors before extraction. Help and standalone self-test exit successfully.

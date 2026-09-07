@@ -132,7 +132,7 @@ enum MacFileWriter {
 
     /// Metadata fields are independent: return every failure after attempting
     /// both fields, so useful bytes and successfully restored fields survive.
-    static func setMetadata(fd: Int32, entry: SITEntry, isDirectory: Bool = false, io: WriterIO = WriterIO()) -> [String] {
+    static func setMetadata(fd: Int32, entry: SITEntry, isDirectory: Bool = false, restoreDate: Bool = true, io: WriterIO = WriterIO()) -> [String] {
         var issues: [String] = []
         var info = [UInt8](repeating: 0, count: 32)
         if !isDirectory {
@@ -142,14 +142,13 @@ enum MacFileWriter {
         info[8] = UInt8(entry.finderFlags >> 8); info[9] = UInt8(entry.finderFlags & 255)
         let result = info.withUnsafeBytes { io.xattr(fd, "com.apple.FinderInfo", $0.baseAddress!, 32, 0) }
         if result != 0 { let code = errno; issues.append(failure("restore FinderInfo", entry.name, code).description) }
-        if let issue = setModificationDate(fd: fd, macDate: entry.modificationDate, name: entry.name, io: io) { issues.append(issue) }
+        if restoreDate, let issue = setModificationDate(fd: fd, macDate: entry.modificationDate, name: entry.name, io: io) { issues.append(issue) }
         return issues
     }
 
     static func setModificationDate(fd: Int32, macDate: UInt32, name: String, io: WriterIO = WriterIO()) -> String? {
         guard macDate != 0 else { return nil }
         let unix = Int64(macDate) - macEpochOffset
-        guard unix > 0 else { return nil }
         let tv = timeval(tv_sec: Int(unix), tv_usec: 0)
         let times = [tv, tv]
         let result = times.withUnsafeBufferPointer { io.times(fd, $0.baseAddress!) }

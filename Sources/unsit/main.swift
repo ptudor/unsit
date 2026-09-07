@@ -1,70 +1,8 @@
 import Foundation
 
-struct Options {
-    var archivePath: String
-    var outputDir: String?
-    var list = false
-    var quiet = false
-    var noVerify = false
-    var limits = Limits()
-}
-
-func usage() -> Never {
-    let prog = (CommandLine.arguments.first as NSString?)?.lastPathComponent ?? "unsit"
-    FileHandle.standardError.write(Data("""
-    unsit — extract classic StuffIt (SIT!) archives
-
-    Usage:
-      \(prog) [options] <archive.sit> [output-directory]
-
-    Options:
-      -l, --list        List archive contents without extracting
-      -o, --output DIR  Extract into DIR (default: a folder named after the archive)
-      -q, --quiet       Only print warnings and errors
-          --no-verify   Skip fork CRC verification
-      -h, --help        Show this help
-
-    Extracts data forks as file contents, resource forks to each file's
-    ..namedfork/rsrc, and restores type/creator/Finder-flags and mod dates.
-
-    """.data(using: .utf8)!))
-    exit(2)
-}
-
-func parseArguments() -> Options {
-    var args = Array(CommandLine.arguments.dropFirst())
-    var opts = Options(archivePath: "")
-    var positional: [String] = []
-    while !args.isEmpty {
-        let a = args.removeFirst()
-        switch a {
-        case "-h", "--help": usage()
-        case "-l", "--list": opts.list = true
-        case "-q", "--quiet": opts.quiet = true
-        case "--no-verify": opts.noVerify = true
-        case "--max-input-bytes", "--max-fork-bytes", "--max-total-bytes", "--max-members", "--max-depth", "--max-recovery-bytes":
-            guard !args.isEmpty, let n = Int(args.removeFirst()), n >= 0 else { usage() }
-            switch a {
-            case "--max-input-bytes": opts.limits.inputBytes = n
-            case "--max-fork-bytes": opts.limits.forkBytes = n
-            case "--max-total-bytes": opts.limits.totalBytes = n
-            case "--max-members": opts.limits.members = n
-            case "--max-depth": opts.limits.depth = n
-            default: opts.limits.recoveryBytes = n
-            }
-        case "-o", "--output":
-            guard !args.isEmpty else { usage() }
-            opts.outputDir = args.removeFirst()
-        default:
-            if a.hasPrefix("-") && a != "-" { usage() }
-            positional.append(a)
-        }
-    }
-    guard !positional.isEmpty else { usage() }
-    opts.archivePath = positional[0]
-    if positional.count > 1 { opts.outputDir = positional[1] }
-    if positional.count > 2 { usage() }
-    return opts
+struct FolderFrame {
+    let directory: OutputDirectory?
+    let entry: SITEntry?
 }
 
 func log(_ s: String, quiet: Bool = false) {
@@ -76,10 +14,17 @@ func warn(_ s: String) {
 }
 
 func run() -> Int32 {
-    if CommandLine.arguments.dropFirst().contains("--self-test") {
-        return SelfTest.run()
+    let opts: Options
+    do {
+        switch try parseArguments(Array(CommandLine.arguments.dropFirst())) {
+        case .help: print(helpText); return 0
+        case .selfTest: return SelfTest.run()
+        case .archive(let options): opts = options
+        }
+    } catch {
+        FileHandle.standardError.write(Data("error: \(display(String(describing: error)))\n\(helpText)\n".utf8))
+        return 2
     }
-    let opts = parseArguments()
 
     let archive: SITArchive
     do {
@@ -106,7 +51,8 @@ func run() -> Int32 {
         return 1
     }
 
-    var dirStack: [OutputDirectory?] = [rootDirectory]
+    let rootFrame = FolderFrame(directory: rootDirectory, entry: nil)
+    var dirStack = [rootFrame]
     let budget = OutputBudget(opts.limits)
     var fileCount = 0
     var partialCount = 0
@@ -118,33 +64,39 @@ func run() -> Int32 {
             warn("resynced at offset \(pos + skipped), skipped \(skipped) unrecognized byte(s)")
             skippedBytes += skipped
         }) { entry in
-            if entry.hierarchyUncertain && dirStack.count > 1 { dirStack = [rootDirectory] }
+            if entry.hierarchyUncertain && dirStack.count > 1 { dirStack = [rootFrame] }
             switch entry.kind {
             case .folderStart:
                 if entry.hierarchyUncertain { return }
                 do {
                     try MacFileWriter.validate(entry.name)
-                    guard let parent = dirStack.last! else { throw MacFileWriter.WriteError(description: "blocked parent directory") }
+                    guard let parent = dirStack.last!.directory else { throw MacFileWriter.WriteError(description: "blocked parent directory") }
                     let dir = try parent.create(entry.name)
-                    let issues = MacFileWriter.setMetadata(fd: dir.fd, entry: entry, isDirectory: true)
+                    let issues = MacFileWriter.setMetadata(fd: dir.fd, entry: entry, isDirectory: true, restoreDate: false)
                     for issue in issues { warn(issue) }
                     if !issues.isEmpty { errorCount += 1 }
-                    dirStack.append(dir)
+                    dirStack.append(FolderFrame(directory: dir, entry: entry))
                 } catch {
                     warn("failed folder \(entry.name) at offset \(entry.offset): \(error)")
                     errorCount += 1
-                    dirStack.append(nil)
+                    dirStack.append(FolderFrame(directory: nil, entry: entry))
                 }
                 log("  \(String(repeating: "  ", count: dirStack.count - 2))[\(entry.name)]/", quiet: opts.quiet)
 
             case .folderEnd:
                 if entry.hierarchyUncertain { return }
-                if dirStack.count > 1 { dirStack.removeLast() }
+                if dirStack.count > 1 {
+                    let frame = dirStack.removeLast()
+                    if let dir = frame.directory, let start = frame.entry,
+                       let issue = MacFileWriter.setModificationDate(fd: dir.fd, macDate: start.modificationDate, name: start.name) {
+                        warn(issue); errorCount += 1
+                    }
+                }
 
             case .file:
                 do {
                     try MacFileWriter.validate(entry.name)
-                    guard let trustedParent = dirStack.last! else { throw MacFileWriter.WriteError(description: "blocked parent directory") }
+                    guard let trustedParent = dirStack.last!.directory else { throw MacFileWriter.WriteError(description: "blocked parent directory") }
                     try budget.reserve(entry)
                     let parent: OutputDirectory
                     if entry.hierarchyUncertain {
@@ -186,10 +138,10 @@ func run() -> Int32 {
         return 1
     }
 
-    log("Extracted \(fileCount) file(s) into \(root)", quiet: false)
+    log("Extracted \(fileCount) file(s) into \(root)", quiet: opts.quiet)
     if partialCount > 0 { warn("\(partialCount) partial member(s) recovered") }
     if skippedBytes > 0 { warn("skipped \(skippedBytes) unrecognized byte(s) total during resync") }
-    if errorCount > 0 { warn("\(errorCount) member(s) could not be extracted") }
+    if errorCount > 0 { warn("\(errorCount) issue(s) prevented complete restoration") }
     return (errorCount > 0) ? 1 : 0
 }
 
