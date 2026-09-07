@@ -15,11 +15,17 @@ enum StuffIt13Error: Error {
 /// 1...5 load one of five preset static tables. Two 321-symbol codes model
 /// the alternation between "after a literal" and "after a match" contexts, and
 /// a small offset code encodes match distances.
+struct ForkDamage: Error, CustomStringConvertible {
+    let bytes: [UInt8]
+    let description: String
+}
+
 struct StuffIt13 {
     private var reader: BitReaderLE
     private let firstCode: PrefixCode
     private let secondCode: PrefixCode
     private let offsetCode: PrefixCode
+    private(set) var terminalMatchRemaining = 0
 
     init(_ data: [UInt8]) throws {
         guard let selector = data.first else { throw StuffIt13Error.emptyInput }
@@ -65,30 +71,27 @@ struct StuffIt13 {
     /// build a canonical prefix code of `size` symbols. Faithful to
     /// `allocAndParseCodeOfSize:` including its index-advancing repeat cases.
     private static func parseCode(size: Int, meta: PrefixCode, reader: inout BitReaderLE) throws -> PrefixCode {
-        var lengths = [Int](repeating: 0, count: size)
+        var lengths = [Int]()
+        lengths.reserveCapacity(size)
         var length = 0
-        var i = 0
-        func put(_ idx: Int, _ v: Int) { if idx >= 0 && idx < size { lengths[idx] = v } }
-
-        while i < size {
+        while lengths.count < size {
             let val = try meta.next(&reader)
+            var emitted = 1
             switch val {
             case 31: length = -1
             case 32: length += 1
             case 33: length -= 1
-            case 34:
-                if reader.bit() != 0 { put(i, length); i += 1 }
-            case 35:
-                var c = reader.bits(3) + 2
-                while c > 0 { put(i, length); i += 1; c -= 1 }
-            case 36:
-                var c = reader.bits(6) + 10
-                while c > 0 { put(i, length); i += 1; c -= 1 }
-            default:
-                length = val + 1
+            case 34: emitted += try reader.bit()
+            case 35: emitted += try reader.bits(3) + 2
+            case 36: emitted += try reader.bits(6) + 10
+            default: length = val + 1
             }
-            put(i, length)
-            i += 1
+            // Both -1 and zero are omitted by the reference canonical builder;
+            // compatibility fixtures cover increment(-1) and decrement(1).
+            guard (-1...32).contains(length), emitted <= size - lengths.count else {
+                throw StuffIt13Error.tableSizeMismatch
+            }
+            lengths.append(contentsOf: repeatElement(length, count: emitted))
         }
         return try PrefixCode.canonical(lengths: lengths, count: size)
     }
@@ -116,6 +119,7 @@ struct StuffIt13 {
         // symbol was a literal or a match; it starts as the literal code.
         var currentIsFirst = true
 
+        do {
         while out.count < expectedLength {
             let code = currentIsFirst ? firstCode : secondCode
             let val = try code.next(&reader)
@@ -133,9 +137,9 @@ struct StuffIt13 {
             if val < 0x13e {
                 matchLength = val - 0x100 + 3
             } else if val == 0x13e {
-                matchLength = reader.bits(10) + 65
+                matchLength = try reader.bits(10) + 65
             } else if val == 0x13f {
-                matchLength = reader.bits(15) + 65
+                matchLength = try reader.bits(15) + 65
             } else {
                 break // end marker (0x140)
             }
@@ -147,9 +151,10 @@ struct StuffIt13 {
             } else if bitLength == 1 {
                 offset = 2
             } else {
-                offset = (1 << (bitLength - 1)) + reader.bits(bitLength - 1) + 1
+                offset = try (1 << (bitLength - 1)) + reader.bits(bitLength - 1) + 1
             }
 
+            terminalMatchRemaining = max(0, matchLength - (expectedLength - out.count))
             var matchOffset = pos - offset
             for _ in 0..<matchLength {
                 if out.count >= expectedLength { break }
@@ -161,6 +166,11 @@ struct StuffIt13 {
             }
         }
 
+        }
+        catch { throw ForkDamage(bytes: out, description: String(describing: error)) }
+        guard out.count == expectedLength else {
+            throw ForkDamage(bytes: out, description: "decoded length \(out.count) differs from declared length \(expectedLength) (early end marker)")
+        }
         return out
     }
 }

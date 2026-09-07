@@ -75,3 +75,25 @@ final class Sandbox {
     }
     func bytes(_ name: String) throws -> [UInt8] { Array(try Data(contentsOf: out.appendingPathComponent(name))) }
 }
+
+struct Bits {
+    var bits: [Int] = []
+    mutating func low(_ value: Int, _ width: Int) { for i in 0..<width { bits.append((value >> i) & 1) } }
+    mutating func meta(_ symbol: Int) { low(Int(StuffIt13Tables.metaCodes[symbol]), StuffIt13Tables.metaCodeLengths[symbol]) }
+    mutating func code(_ symbol: Int, _ lengths: [Int]) {
+        var value = 0
+        for width in 1...(lengths.max() ?? 0) {
+            for (i,n) in lengths.enumerated() where n == width {
+                if i == symbol { for k in (0..<width).reversed() { bits.append((value >> k) & 1) }; return }
+                value += 1
+            }
+            value <<= 1
+        }
+        preconditionFailure("omitted symbol")
+    }
+    var bytes: [UInt8] {
+        var out = [UInt8](repeating: 0, count: (bits.count + 7)/8)
+        for (i,b) in bits.enumerated() { out[i/8] |= UInt8(b << (i%8)) }
+        return out
+    }
+}

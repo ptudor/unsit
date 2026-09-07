@@ -6,7 +6,10 @@ import Foundation
 /// StuffIt method-13 stream: bytes are consumed low address first, and within
 /// a byte the low bit is consumed first. For a multi-bit read the first bit
 /// consumed becomes the least-significant bit of the returned value.
+enum BitReaderError: Error { case truncatedStream, invalidWidth }
+
 struct BitReaderLE {
+    private(set) var truncated = false
     private let data: [UInt8]
     private var bytePos: Int
     private var bitBuffer: UInt64 = 0
@@ -20,9 +23,15 @@ struct BitReaderLE {
         self.bytePos = startOffset
     }
 
-    private mutating func fill(_ needed: Int) {
+    private mutating func fill(_ needed: Int) throws {
+        guard needed >= 0, needed <= 32 else { throw BitReaderError.invalidWidth }
+        guard !truncated else { throw BitReaderError.truncatedStream }
         while bitCount < needed {
-            let b: UInt64 = bytePos < data.count ? UInt64(data[bytePos]) : 0
+            guard bytePos >= 0, bytePos < data.count else {
+                truncated = true
+                throw BitReaderError.truncatedStream
+            }
+            let b = UInt64(data[bytePos])
             bytePos += 1
             bitBuffer |= b << UInt64(bitCount)
             bitCount += 8
@@ -30,8 +39,8 @@ struct BitReaderLE {
     }
 
     /// Read a single bit (0 or 1), earliest bit first.
-    mutating func bit() -> Int {
-        fill(1)
+    mutating func bit() throws -> Int {
+        try fill(1)
         let r = Int(bitBuffer & 1)
         bitBuffer >>= 1
         bitCount -= 1
@@ -39,9 +48,9 @@ struct BitReaderLE {
     }
 
     /// Read `n` bits; the first bit read is the LSB of the result.
-    mutating func bits(_ n: Int) -> Int {
+    mutating func bits(_ n: Int) throws -> Int {
         if n == 0 { return 0 }
-        fill(n)
+        try fill(n)
         let mask: UInt64 = (UInt64(1) << UInt64(n)) - 1
         let r = Int(bitBuffer & mask)
         bitBuffer >>= UInt64(n)

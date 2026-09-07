@@ -174,13 +174,20 @@ struct SITArchive {
     /// uncompressed length. Only methods 0 (stored) and 13 are present in the
     /// classic archives targeted here.
     func decompressFork(method: UInt8, offset: Int, compressedLength: Int, uncompressedLength: Int) throws -> [UInt8] {
-        guard compressedLength >= 0, offset + compressedLength <= data.count else {
+        guard offset >= 0, compressedLength >= 0, offset <= data.count, compressedLength <= data.count - offset else {
             throw SITError.truncated
         }
         try Limits.check(uncompressedLength, limits.forkBytes, "decoded fork bytes")
+        if compressedLength == 0 && uncompressedLength == 0 { return [] }
         let slice = Array(data[offset..<(offset + compressedLength)])
+        if (compressedLength == 0) != (uncompressedLength == 0) {
+            throw ForkDamage(bytes: method == 0 ? slice : [], description: "contradictory zero/nonzero fork lengths")
+        }
         switch method {
         case 0:
+            guard compressedLength == uncompressedLength else {
+                throw ForkDamage(bytes: slice, description: "stored length \(compressedLength) differs from declared length \(uncompressedLength)")
+            }
             return slice
         case 13:
             var dec = try StuffIt13(slice)

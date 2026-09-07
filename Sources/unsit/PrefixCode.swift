@@ -28,7 +28,7 @@ final class PrefixCode {
 
     /// Insert `value` at the code given by `hbf` (high-bit-first) of `length` bits.
     func insert(hbf: UInt32, length: Int, value: Int) throws {
-        guard length > 0 else { return }
+        guard (1...32).contains(length), value >= 0, UInt64(hbf) < (UInt64(1) << length) else { throw PrefixCodeError.malformedTable }
         var node = 0
         for k in 0..<length {
             let bit = Int((hbf >> UInt32(length - 1 - k)) & 1)
@@ -40,7 +40,7 @@ final class PrefixCode {
             }
             node = next
         }
-        if child0[node] != -1 || child1[node] != -1 { throw PrefixCodeError.malformedTable }
+        if symbol[node] >= 0 || child0[node] != -1 || child1[node] != -1 { throw PrefixCodeError.malformedTable }
         symbol[node] = value
     }
 
@@ -48,25 +48,18 @@ final class PrefixCode {
     /// Symbols with length <= 0 are omitted. This reproduces XADPrefixCode's
     /// `initWithLengths:...shortestCodeIsZeros:YES` assignment exactly.
     static func canonical(lengths: [Int], count: Int) throws -> PrefixCode {
+        guard count >= 0, count <= lengths.count,
+              lengths.prefix(count).allSatisfy({ (-1...32).contains($0) }) else { throw PrefixCodeError.malformedTable }
         let code = PrefixCode()
-        var maxLen = 0
-        for i in 0..<count where lengths[i] > maxLen { maxLen = lengths[i] }
-        var value: UInt32 = 0
-        var assigned = 0
-        if maxLen > 0 {
-            for length in 1...maxLen {
-                for i in 0..<count where lengths[i] == length {
-                    try code.insert(hbf: value, length: length, value: i)
-                    value &+= 1
-                    assigned += 1
-                }
-                value <<= 1
+        var value: UInt64 = 0
+        for length in 1...32 {
+            for i in 0..<count where lengths[i] == length {
+                guard value < (UInt64(1) << length) else { throw PrefixCodeError.malformedTable }
+                try code.insert(hbf: UInt32(value), length: length, value: i)
+                value += 1
             }
+            value <<= 1
         }
-        // A single-symbol code (assigned == 1) is degenerate but valid in the
-        // wild; the root stays internal with one leaf. Any assignment is fine
-        // for our streams because such trivial codes never occur in practice.
-        _ = assigned
         return code
     }
 
@@ -74,7 +67,7 @@ final class PrefixCode {
     func next(_ reader: inout BitReaderLE) throws -> Int {
         var node = 0
         while symbol[node] < 0 {
-            let bit = reader.bit()
+            let bit = try reader.bit()
             let next = bit == 0 ? child0[node] : child1[node]
             if next == -1 { throw PrefixCodeError.invalidBitstream }
             node = next

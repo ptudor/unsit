@@ -141,3 +141,10 @@ integers, bytes where applicable). Input is read in bounded chunks; at most the
 bounded input, a compressed fork copy, and the two bounded decoded forks are
 retained. Reservations include damaged stored output and are not refunded for
 failed members. List mode enforces input, member, nesting, and recovery limits.
+
+Compressed EOF, invalid Huffman tables, contradictory fork lengths, and premature
+end markers are structural errors even with `--no-verify`. Zero/zero fork lengths
+mean an absent fork regardless of the unused method byte. Method 13 preserves the
+reference's 64 KiB zero-initialized history and length-delimited completion,
+including a terminal match spanning the declared boundary; no extra terminator
+is required. Dynamic lengths -1 and zero denote omitted symbols.
