@@ -74,15 +74,72 @@ Git history retains the licensing provenance of earlier implementations.
 
 ## Configure Apple credentials
 
+Signing and notarization use different credentials. The Developer ID certificate
+and private key sign the app as its publisher. Notarization sends the signed app
+to Apple's service for inspection and needs an Apple account login. Creating a
+certificate in Xcode completes the signing setup; it does not automatically
+create the command-line notarization profile described below.
+
+### Choose where releases are signed
+
+For this project's repeatable release workflow, the recommended choice is
+**GitHub Actions with credentials in the `release` environment**. Both native
+builds, signing, notarization, publication, and the live updater check can then
+run from a version tag without depending on the maintainer's Mac being awake.
+
+| Choice | Credential location | Work for each release |
+| --- | --- | --- |
+| GitHub Actions | A copy of the signing key and notary credentials is stored as encrypted environment secrets and loaded into a temporary runner keychain | Push the reviewed version tag and monitor the workflow |
+| Local signing | The signing key and notary credentials stay in the release Mac's Keychain | Run signed packaging on that Mac and upload and verify its finished artifacts |
+
+Public repository visitors cannot read environment secrets. The authorized
+release jobs can use them, so control over those jobs also carries control over
+the signing credentials. Keeping credentials local avoids granting that ability
+to GitHub jobs. The choice changes the maintainer's release process; either can
+produce a signed, notarized app with the same installation and update experience.
+The automated workflow in this repository implements the GitHub Actions choice;
+a local-only publication path needs separate artifact publication and provenance
+handling. Do not upload a private signing key without the publisher's agreement.
+
 ### Local packaging
 
-Store notarization credentials in Keychain, following the interactive prompts:
+`unsit-notary` is a name chosen for a saved set of notarization credentials. It is
+not another certificate, an App Store app registration, or a value to find in
+Xcode. It is useful for local rehearsal; GitHub runners cannot read this Mac's
+Keychain and need their own credentials in the next section.
+
+1. Sign in to [your Apple account](https://account.apple.com/) using the account
+   that belongs to the signing team.
+2. Open **Sign-In and Security → App-Specific Passwords**, generate a password,
+   and give it a recognizable label such as `Unsit notarization`. Apple requires
+   two-factor authentication for this feature. See
+   [Apple's password instructions](https://support.apple.com/en-us/102654).
+3. Run the following command in Terminal, replacing the example email with that
+   Apple account's email. `55QT38683G` is the current Unsit signing team; another
+   publisher must use their own team identifier.
 
 ```sh
-xcrun notarytool store-credentials unsit-notary
+xcrun notarytool store-credentials unsit-notary \
+  --apple-id 'YOUR-APPLE-ACCOUNT-EMAIL' \
+  --team-id 55QT38683G
+```
+
+4. At the secure password prompt, paste the generated app-specific password and
+   press Return. Terminal may show no characters while it is entered. Use the
+   generated password here, not the normal Apple account password. Omitting the
+   password from the command keeps it out of shell history.
+5. The tool checks the login with Apple and saves it to Keychain. This step does
+   not upload an app or publish a release. Confirm that the saved profile works:
+
+```sh
 xcrun notarytool history --keychain-profile unsit-notary
 security find-identity -v -p codesigning
 ```
+
+An empty submission history is normal before the first notarization. An
+authentication error needs correction before packaging can submit an app.
+App-specific passwords can be revoked individually in the Apple account; changing
+the primary Apple account password also revokes existing app-specific passwords.
 
 Use the exact Developer ID Application identity name or SHA-1 identifier from
 the last command. `--keychain PATH` selects an explicit keychain for both signing
