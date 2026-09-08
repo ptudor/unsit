@@ -71,6 +71,13 @@ APFS. CI is configured to run natively on Apple silicon and Intel macOS runners,
 build app and CLI packages, and test the bundled helper. Those remote jobs must
 pass on the published commit before a release is called verified.
 
+The first public native CI run on `ccd4734` passed all 56 tests, packaging, and
+the packaged helper's integration checks on **both arm64 and x86_64**, using
+macOS 15.7.9 and Swift 6.1.2. The separate workflow-lint job identified an unsafe
+shell glob in the old checksum command; the new publisher uses explicit Python
+asset lists. See the [native CI results](https://github.com/ptudor/unsit/actions/runs/34176194172).
+The complete workflow must still pass on the final release commit.
+
 The universal app was opened locally through Finder with multiple synthetic
 archives, and a native file drag recovered a deliberately damaged synthetic
 archive. The result showed two complete files, one partial file, and credit for
@@ -83,8 +90,8 @@ cycles through **Window → Show Unsit**, reopening with **⌘0**, and restorati
 from a minimized window. The restore command remains enabled without a window.
 
 Minimum macOS 11 CLI / macOS 12 app and Swift 5.7 runtime checks remain separate
-platform gates. A cross-build alone does not establish native Intel runtime
-behavior. Real failing volumes and power-loss durability are not tested; native
+platform gates. Native Intel behavior was checked on macOS 15.7.9; a cross-build
+alone does not establish that result. Real failing volumes and power-loss durability are not tested; native
 syscall faults and interrupted processes are covered.
 
 ## Repeating a private comparison

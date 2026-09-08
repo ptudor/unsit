@@ -1,5 +1,9 @@
 # Builds and releases
 
+Maintainers should follow [RELEASE.md](../RELEASE.md) for the complete repeatable
+procedure: repository setup, Apple credentials, native CI, signing, notarization,
+publication, download verification, and the live updater check.
+
 `scripts/package.py` builds the macOS app and its bundled CLI using SwiftPM. It
 produces an installer DMG, app ZIP, CLI tarball, source tarball, update metadata, and per-architecture SHA-256
 manifest. The app includes an original icon, classic StuffIt document registration,
@@ -41,19 +45,18 @@ app ZIP in Finder and move the app into Applications. The app
 requires macOS 12 or later. CLI archives target macOS 11 or later; extract the
 tarball and place its `unsit` executable in a directory on your PATH.
 
-Current packaging uses ad hoc signatures. It does not use a Developer ID identity,
-upload to Apple, or notarize the app. A downloaded build can be blocked by
-Gatekeeper; if you trust its verified origin, macOS provides **Open Anyway** in
-**System Settings → Privacy & Security**. Building locally is another option.
-Do not disable Gatekeeper globally.
+Local snapshots use ad hoc signatures by default. Public release packaging
+requires a Developer ID Application identity and a validated notarization profile.
+It signs the helper and app with Hardened Runtime and secure timestamps, requires
+Apple to accept both the app and DMG, staples and verifies both tickets, and
+checks Gatekeeper acceptance before publishing finished packages. There is no
+unsigned fallback for `--release`.
 
-For a Developer ID release, sign the helper first and the enclosing app second
-with an authorized identity and hardened runtime, notarize the final app archive,
-and staple the accepted ticket before rebuilding the downloadable DMG/ZIP and their
-checksums. Update the recorded signing/notarization state and the release workflow
-together. The current workflow publishes the tested ad hoc artifacts and does not
-claim Developer ID signing. This work requires the publisher's configured Apple
-credentials and is separate from local packaging.
+The publisher configures Apple credentials in the GitHub `release` environment
+or uses a local Keychain profile for rehearsal. Credentials are excluded from
+sources and packages. Final asset hashes and accepted submission IDs are recorded
+in each architecture's `.notarization.json` receipt. See the
+[credential setup and signed rehearsal](../RELEASE.md#configure-apple-credentials).
 
 ## GitHub automation
 
@@ -61,11 +64,12 @@ credentials and is separate from local packaging.
 | --- | --- |
 | Push to `main`, pull request, or manual CI | Workflow and fixture validation; native tests and app/CLI packaging on Apple silicon and Intel macOS; downloadable snapshot artifacts |
 | Weekly or source changes | Redacted secret scan of Git history; Dependabot updates for pinned actions |
-| Push a version tag | Required CI and secret scan, draft release with tested assets, provenance attestation, then publication |
+| Push a version tag | Required CI and secret scan; native signed/notarized packages; draft, provenance attestation, publication, and live stable updater check |
 
 Actions are pinned to commits, checkout does not retain credentials, and only
-the release job has publishing permissions. Release jobs reuse tested CI artifacts
-instead of rebuilding them after the checks. macOS runner labels and the actual
+the release job has publishing permissions. Signed packages are built from the
+checked tag, verified with their final signatures, and tested natively before
+being uploaded. The publishing job consumes those exact artifacts. macOS runner labels and the actual
 toolchain are recorded in logs; they do not establish minimum-platform coverage.
 The runner choices follow [GitHub's runner documentation](https://docs.github.com/en/actions/reference/runners/github-hosted-runners).
 
@@ -100,7 +104,9 @@ to HEAD, and rejects a version whose base differs from `VERSION`.
 On a clean tagged checkout, rehearse that exact version with:
 
 ```sh
-python3 scripts/package.py --version 1.0.0 --release
+python3 scripts/package.py --version 1.0.0 --release \
+  --sign-identity 'Developer ID Application: YOUR NAME (TEAMID)' \
+  --notary-profile unsit-notary --output dist/release-1.0.0
 ```
 
 ## Verify a download

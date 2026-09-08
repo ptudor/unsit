@@ -39,9 +39,10 @@ open dist/Unsit.app
 
 The app requires macOS 12 or later. `make universal` builds an app and CLI with
 both Apple silicon and Intel slices. Packaging produces an installer DMG, app ZIP,
-CLI archive, source archive, and update/checksum manifests in `dist/`. App archives currently use ad hoc
-signing; they are not Developer ID signed or notarized. See [builds and
-releases](docs/releases.md) for installation, verification, and publication.
+CLI archive, source archive, and update/checksum manifests in `dist/`. Local
+snapshots use ad hoc signing. Public release packaging requires Developer ID
+signing and Apple notarization. See [builds and releases](docs/releases.md) for
+installation and verification, and [RELEASE.md](RELEASE.md) for the maintainer runbook.
 
 ## Command line
 

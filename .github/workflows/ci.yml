@@ -6,10 +6,6 @@ on:
   pull_request:
   workflow_dispatch:
   workflow_call:
-    inputs:
-      release_version:
-        type: string
-        default: ''
 
 permissions:
   contents: read
@@ -30,6 +26,7 @@ jobs:
         run: |
           python3 scripts/generate-codebooks.py --check
           python3 -m compileall -q scripts
+          python3 scripts/test-release.py
           cd Tests/unsitTests/Fixtures
           sha256sum --check SHA256SUMS
       - name: Check workflow syntax
@@ -66,14 +63,8 @@ jobs:
         run: swift test
       - name: Build app and release assets
         env:
-          RELEASE_VERSION: ${{ inputs.release_version }}
           BUILD_ARCH: ${{ matrix.arch }}
-        run: |
-          if [ -n "$RELEASE_VERSION" ]; then
-            python3 scripts/package.py --arch "$BUILD_ARCH" --version "$RELEASE_VERSION" --release
-          else
-            python3 scripts/package.py --arch "$BUILD_ARCH"
-          fi
+        run: python3 scripts/package.py --arch "$BUILD_ARCH"
       - name: Verify packaged helper with native integration tests
         run: UNSIT_TEST_BINARY="$PWD/dist/Unsit.app/Contents/MacOS/unsit" swift test --filter RegressionTests
       - name: Save downloadable builds

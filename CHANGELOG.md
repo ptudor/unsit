@@ -20,6 +20,9 @@
 - Add comprehensive preset probes verified against an external decoder, native
   app-helper and updater tests, DMG/ZIP packaging, CI, checksums, source archives, attestations,
   MIT licensing, contribution guidance, and security reporting.
+- Add the repeatable `RELEASE.md` runbook, Developer ID signing with Hardened
+  Runtime, app and DMG notarization/stapling, final package verification,
+  notarization receipts, and checks of the published feed through the real updater.
 
 See [release notes](docs/release-notes/v1.0.0.md) and
 [measured recovery results](docs/verification.md).

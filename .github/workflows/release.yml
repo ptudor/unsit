@@ -34,8 +34,6 @@ jobs:
   verify:
     needs: version
     uses: ./.github/workflows/ci.yml
-    with:
-      release_version: ${{ needs.version.outputs.version }}
     permissions:
       contents: read
 
@@ -44,8 +42,61 @@ jobs:
     permissions:
       contents: read
 
+  signed-packages:
+    name: Sign and notarize (${{ matrix.arch }})
+    needs: [version, verify, security]
+    runs-on: ${{ matrix.runner }}
+    environment: release
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x86_64
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up isolated Apple signing credentials
+        env:
+          DEVELOPER_ID_P12_BASE64: ${{ secrets.DEVELOPER_ID_P12_BASE64 }}
+          DEVELOPER_ID_P12_PASSWORD: ${{ secrets.DEVELOPER_ID_P12_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          NOTARY_APPLE_ID: ${{ secrets.NOTARY_APPLE_ID }}
+          NOTARY_APP_PASSWORD: ${{ secrets.NOTARY_APP_PASSWORD }}
+        run: python3 scripts/ci-signing.py setup
+      - name: Build, sign, notarize, staple, and verify
+        env:
+          RELEASE_VERSION: ${{ needs.version.outputs.version }}
+          BUILD_ARCH: ${{ matrix.arch }}
+        run: |
+          python3 scripts/package.py --arch "$BUILD_ARCH" --version "$RELEASE_VERSION" --release \
+            --sign-identity "$UNSIT_SIGN_IDENTITY" --keychain "$UNSIT_SIGN_KEYCHAIN" \
+            --notary-profile "$UNSIT_NOTARY_PROFILE"
+      - name: Run native integration tests against the final signed helper
+        run: UNSIT_TEST_BINARY="$PWD/dist/Unsit.app/Contents/MacOS/unsit" swift test --filter RegressionTests
+      - name: Save signed release packages
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: unsit-release-macos-${{ matrix.arch }}
+          path: |
+            dist/*.zip
+            dist/*.dmg
+            dist/*.json
+            dist/*.tar.gz
+            dist/checksums-macos-*.txt
+          if-no-files-found: error
+          retention-days: 14
+      - name: Remove temporary signing credentials
+        if: ${{ always() }}
+        run: python3 scripts/ci-signing.py cleanup
+
   release:
-    needs: [verify, security]
+    needs: [signed-packages]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -59,31 +110,22 @@ jobs:
           persist-credentials: false
       - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
         with:
-          pattern: unsit-macos-*
+          pattern: unsit-release-macos-*
           merge-multiple: true
           path: dist
-      - name: Verify and collect checksums
-        run: |
-          cd dist
-          sha256sum --check checksums-macos-arm64.txt
-          sha256sum --check checksums-macos-x86_64.txt
-          sha256sum *.zip *.dmg *.update.json *.tar.gz > checksums.txt
-      - name: Create draft with tested artifacts
+      - name: Verify final bytes and prepare the draft
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ github.ref_name }}
-        run: |
-          prerelease=()
-          if [[ "$RELEASE_TAG" == *-* ]]; then prerelease=(--prerelease); fi
-          gh release create "$RELEASE_TAG" dist/*.zip dist/*.dmg dist/*.update.json dist/*.tar.gz dist/checksums.txt --draft --verify-tag --title "Unsit $RELEASE_TAG" --notes-file "docs/release-notes/$RELEASE_TAG.md" "${prerelease[@]}"
+        run: python3 scripts/publish-release.py --tag "$RELEASE_TAG"
       - name: Attest app, CLI, sources, and checksums
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
         with:
           subject-path: |
             dist/*.zip
             dist/*.dmg
-            dist/*.update.json
+            dist/*.json
             dist/*.tar.gz
             dist/checksums.txt
       - name: Publish the verified release
@@ -92,3 +134,30 @@ jobs:
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ github.ref_name }}
         run: gh release edit "$RELEASE_TAG" --draft=false
+
+  live-updater:
+    name: Verify the published stable updater
+    needs: [version, release]
+    if: ${{ !contains(github.ref_name, '-') }}
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check both architecture downloads through the app's real client
+        env:
+          RELEASE_VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          swiftc -parse-as-library Sources/UnsitDesktop/AppUpdate.swift scripts/check-updater.swift -o "$RUNNER_TEMP/check-updater"
+          for arch in arm64 x86_64; do
+            "$RUNNER_TEMP/check-updater" --version "$RELEASE_VERSION" --arch "$arch" \
+              --directory "$RUNNER_TEMP/update-check" | tee "$RUNNER_TEMP/updater-$arch.log"
+          done
+      - name: Retain live updater verification
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: unsit-updater-verification
+          path: ${{ runner.temp }}/updater-*.log
+          if-no-files-found: error

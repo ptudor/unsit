@@ -45,6 +45,9 @@ install silently. Extraction and the CLI work offline; update requests contain n
 archive paths, contents, or extraction reports. GitHub receives ordinary network
 request information, including the connecting IP address.
 
-The updater and its failure paths are tested with local simulated responses. A
-live public upgrade and Developer ID/notarization remain release checks; local
-ad hoc packaging does not establish them.
+The updater and its failure paths are tested with local simulated responses.
+The release workflow also compiles `scripts/check-updater.swift` with the real app
+client and exercises the published stable feed and both architecture downloads.
+See [RELEASE.md](../RELEASE.md#exercise-the-actual-updater) for repeating that check
+and testing an installed app's installer handoff. Local ad hoc packaging does not
+establish live update behavior or Apple notarization.
