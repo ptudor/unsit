@@ -161,7 +161,17 @@ version tags (`v*`). Store these **environment secrets** there:
 
 Enter secrets through GitHub's secure settings interface or `gh secret set`'s
 prompt/stdin. Do not put their values in command arguments, workflow YAML, logs,
-or chat. Verify names, without retrieving values:
+or chat. The local `unsit-notary` profile is not automatically available to
+GitHub. To enter its Apple login manually, run these commands in your own
+Terminal and enter each value at the secure prompt:
+
+```sh
+gh secret set NOTARY_APPLE_ID --repo ptudor/unsit --env release
+gh secret set NOTARY_APP_PASSWORD --repo ptudor/unsit --env release
+```
+
+The first value is the developer account's email; the second is the generated
+app-specific password. Verify secret names, without retrieving their values:
 
 ```sh
 gh secret list --repo ptudor/unsit --env release

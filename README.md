@@ -10,6 +10,10 @@ compression methods are outside its current scope.
 
 ## macOS app
 
+[Download Unsit for macOS](https://github.com/ptudor/unsit/releases/latest).
+Choose the Apple silicon (`arm64`) or Intel (`x86_64`) DMG, open it, and drag
+**Unsit.app** to **Applications**. The app requires macOS 12 or later.
+
 Drop one or more `.sit` files into Unsit, or use **File → Open Archives**. Each
 archive gets a fresh output folder beside the original. Use **Save To** to choose
 another destination, then **Open Folder** to see the recovered files in Finder.

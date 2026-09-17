@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.0.0 — prepared
+## 1.0.0
 
 - Add a native macOS app with drag-and-drop, multiple-archive queues, destination
   selection, cancellation, recovery details, and Finder access to output.
