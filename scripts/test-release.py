@@ -2,9 +2,11 @@
 """Offline regression checks for release rejection paths."""
 import importlib.util
 import io
+import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 import zipfile
 
 
@@ -17,9 +19,72 @@ def module(name, filename):
 
 package = module("package", "package.py")
 verify = module("verify_release", "verify-release.py")
+publish = module("publish_release", "publish-release.py")
+
+
+class DraftAPI:
+    """A draft is visible to listing/ID lookups, never the published-tag API."""
+    def __init__(self, release=None):
+        self.release = release
+        self.created = 0
+        self.uploaded = []
+        self.hashes = {"app.dmg": "a" * 64, "checksums.txt": "b" * 64}
+
+    def call(self, *args):
+        if args[:2] == ("api", "repos/example/unsit/releases?per_page=100"):
+            return json.dumps([[{"tag_name": "v0.9.0"}], [self.release] if self.release else []])
+        if args[:2] == ("api", "repos/example/unsit/releases/42"):
+            return json.dumps(self.release)
+        if args[:2] == ("release", "create"):
+            self.created += 1
+            self.release = {"id": 42, "tag_name": args[2], "draft": True, "assets": []}
+            return "draft created"
+        if args[:2] == ("release", "upload"):
+            name = Path(args[3]).name
+            self.uploaded.append(name)
+            self.release["assets"].append({"name": name, "digest": "sha256:" + self.hashes[name]})
+            return "uploaded"
+        raise AssertionError("Unexpected API access: " + repr(args))
+
+    def prepare(self):
+        with patch.object(publish, "gh", side_effect=self.call):
+            publish.prepare_draft("example/unsit", "v1.0.0", Path("dist"), self.hashes)
 
 
 class ReleaseChecks(unittest.TestCase):
+    def test_creates_and_populates_draft_without_published_tag_lookup(self):
+        api = DraftAPI()
+        api.prepare()
+        self.assertEqual(api.created, 1)
+        self.assertEqual(set(api.uploaded), api.hashes.keys())
+        self.assertTrue(api.release["draft"])
+
+    def test_resumes_paginated_draft_without_replacing_matching_assets(self):
+        api = DraftAPI({"id": 42, "tag_name": "v1.0.0", "draft": True,
+                        "assets": [{"name": "app.dmg", "digest": "sha256:" + "a" * 64}]})
+        api.prepare()
+        self.assertEqual(api.created, 0)
+        self.assertEqual(api.uploaded, ["checksums.txt"])
+
+    def test_published_release_cannot_be_replaced(self):
+        api = DraftAPI({"id": 42, "tag_name": "v1.0.0", "draft": False, "assets": []})
+        with self.assertRaisesRegex(SystemExit, "already published"):
+            api.prepare()
+        self.assertEqual((api.created, api.uploaded), (0, []))
+
+    def test_mismatching_draft_asset_stops_before_upload(self):
+        api = DraftAPI({"id": 42, "tag_name": "v1.0.0", "draft": True,
+                        "assets": [{"name": "app.dmg", "digest": "sha256:" + "c" * 64}]})
+        with self.assertRaisesRegex(SystemExit, "Existing draft asset differs"):
+            api.prepare()
+        self.assertEqual((api.created, api.uploaded), (0, []))
+
+    def test_duplicate_tagged_drafts_are_ambiguous(self):
+        pages = [[{"tag_name": "v1.0.0"}], [{"tag_name": "v1.0.0"}]]
+        with patch.object(publish, "gh", return_value=json.dumps(pages)):
+            with self.assertRaisesRegex(SystemExit, "Multiple releases"):
+                publish.find_release("example/unsit", "v1.0.0")
+
     def test_rejects_development_identity(self):
         listing = '1) ' + 'A' * 40 + ' "Apple Development: Example (0123456789)"'
         with self.assertRaises(ValueError):

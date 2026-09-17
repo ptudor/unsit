@@ -13,6 +13,45 @@ def gh(*args):
     return subprocess.check_output(["gh", *args], text=True)
 
 
+def find_release(repository, tag):
+    # The by-tag endpoint returns published releases only. List releases with
+    # push access to discover drafts, including those left by a failed run.
+    pages = json.loads(gh("api", "repos/" + repository + "/releases?per_page=100", "--paginate", "--slurp"))
+    matches = [release for page in pages for release in page if release["tag_name"] == tag]
+    if len(matches) > 1:
+        raise SystemExit("Multiple releases have this tag; inspect the drafts before retrying")
+    return matches[0] if matches else None
+
+
+def prepare_draft(repository, tag, directory, hashes):
+    release = find_release(repository, tag)
+    if release is None:
+        command = ["release", "create", tag, "--repo", repository, "--draft", "--verify-tag",
+                   "--title", "Unsit " + tag, "--notes-file", "docs/release-notes/" + tag + ".md"]
+        if "-" in tag:
+            command.append("--prerelease")
+        gh(*command)
+        release = find_release(repository, tag)
+        if release is None:
+            raise SystemExit("Created draft could not be found; inspect it before retrying")
+    if not release["draft"] or release["tag_name"] != tag:
+        raise SystemExit("This version is already published; do not replace it")
+    existing = {}
+    for asset in release["assets"]:
+        name = asset["name"]
+        if name not in hashes or asset.get("digest") != "sha256:" + hashes[name]:
+            raise SystemExit("Existing draft asset differs: " + name + "; inspect the failed run before retrying")
+        existing[name] = asset
+    for name in sorted(hashes.keys() - existing.keys()):
+        gh("release", "upload", tag, str(directory / name), "--repo", repository)
+    endpoint = "repos/" + repository + "/releases/" + str(release["id"])
+    final = json.loads(gh("api", endpoint))
+    if not final["draft"] or final["tag_name"] != tag:
+        raise SystemExit("Release changed while preparing the draft; inspect it before continuing")
+    if {asset["name"]: asset.get("digest") for asset in final["assets"]} != {name: "sha256:" + digest for name, digest in hashes.items()}:
+        raise SystemExit("Uploaded draft assets do not match the verified bytes")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--tag", required=True)
@@ -38,32 +77,7 @@ def main():
     manifest = args.directory / "checksums.txt"
     manifest.write_text("".join(hashes[name] + "  " + name + "\n" for name in sorted(hashes)))
     hashes[manifest.name] = verify.sha256(manifest)
-    endpoint = "repos/" + repository + "/releases/tags/" + args.tag
-    result = subprocess.run(["gh", "api", endpoint], text=True, capture_output=True)
-    if result.returncode:
-        if "HTTP 404" not in result.stderr:
-            raise SystemExit("Cannot inspect the existing release: " + result.stderr)
-        command = ["release", "create", args.tag, "--repo", repository, "--draft", "--verify-tag",
-                   "--title", "Unsit " + args.tag, "--notes-file", "docs/release-notes/" + args.tag + ".md"]
-        if "-" in version:
-            command.append("--prerelease")
-        gh(*command)
-        release = json.loads(gh("api", endpoint))
-    else:
-        release = json.loads(result.stdout)
-    if not release["draft"] or release["tag_name"] != args.tag:
-        raise SystemExit("This version is already published; do not replace it")
-    existing = {}
-    for asset in release["assets"]:
-        name = asset["name"]
-        if name not in hashes or asset.get("digest") != "sha256:" + hashes[name]:
-            raise SystemExit("Existing draft asset differs: " + name + "; inspect the failed run before retrying")
-        existing[name] = asset
-    for name in sorted(hashes.keys() - existing.keys()):
-        gh("release", "upload", args.tag, str(args.directory / name), "--repo", repository)
-    final = json.loads(gh("api", endpoint))
-    if {asset["name"]: asset.get("digest") for asset in final["assets"]} != {name: "sha256:" + digest for name, digest in hashes.items()}:
-        raise SystemExit("Uploaded draft assets do not match the verified bytes")
+    prepare_draft(repository, args.tag, args.directory, hashes)
     print("Draft assets verified; ready for provenance attestation and publication")
 
 

@@ -352,8 +352,9 @@ download, or invalid manifest must never be reported as a successful upgrade.
 
 An initial candidate that fails before any release assets are published can be
 corrected before first publication. Retain the failed run URL and source commit,
-confirm that no release exists and every old job has stopped, and record the
-remote tag object's ID. Commit and test the fix before updating that candidate
+confirm that no published release or draft assets exist and every old job has
+stopped, and record the remote tag object's ID. An empty draft can be resumed.
+Commit and test the fix before updating that candidate
 tag. Protect the update with an explicit
 `--force-with-lease=refs/tags/TAG:OLD_TAG_OBJECT_ID` so another maintainer's change
 cannot be overwritten. A version that already has published assets requires a
@@ -374,6 +375,10 @@ new version instead.
 - **Attestation failure:** the release remains a draft. Rerun the failed jobs
   for the same immutable tag; verify existing asset hashes before reusing a
   draft. Do not manually publish unverified files.
+- **Draft lookup:** the REST endpoint for a release by tag returns published
+  releases only. The publisher finds drafts in the paginated releases list and
+  verifies uploaded assets using the numeric release ID. It resumes matching
+  draft assets, rejects changed bytes, and refuses to modify published releases.
 - **Failure after publication:** inspect the public assets and updater error.
   For changed code or bytes, issue a new version. The updater rejects downgrades
   it has already seen; it cannot make missing assets or an invalid feed safe.
