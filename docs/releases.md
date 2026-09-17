@@ -4,6 +4,11 @@ Maintainers should follow [RELEASE.md](../RELEASE.md) for the complete repeatabl
 procedure: repository setup, Apple credentials, native CI, signing, notarization,
 publication, download verification, and the live updater check.
 
+The published [v1.0.0 release](https://github.com/ptudor/unsit/releases/tag/v1.0.0)
+includes signed, notarized installers for Apple silicon and Intel. Its
+[execution record](release-records/v1.0.0.md) contains the completed checks,
+notarization receipts, hashes, and updater verification.
+
 `scripts/package.py` builds the macOS app and its bundled CLI using SwiftPM. It
 produces an installer DMG, app ZIP, CLI tarball, source tarball, update metadata, and per-architecture SHA-256
 manifest. The app includes an original icon, classic StuffIt document registration,

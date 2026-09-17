@@ -379,6 +379,7 @@ new version instead.
   releases only. The publisher finds drafts in the paginated releases list and
   verifies uploaded assets using the numeric release ID. It resumes matching
   draft assets, rejects changed bytes, and refuses to modify published releases.
+  See [GitHub's release API](https://docs.github.com/en/rest/releases/releases).
 - **Failure after publication:** inspect the public assets and updater error.
   For changed code or bytes, issue a new version. The updater rejects downgrades
   it has already seen; it cannot make missing assets or an invalid feed safe.
@@ -390,3 +391,7 @@ Record each execution using the tag, commit, CI and release run URLs, native
 platform results, notary submission receipts, asset checksums, and live updater
 result. GitHub retains the published receipts and attestations alongside the
 release; keep a separate backup of credentials and release evidence.
+
+Completed executions: [v1.0.0 release record](docs/release-records/v1.0.0.md),
+including native test results, Apple submission IDs, artifact hashes, provenance,
+live updater results, and corrections made before its first publication.
