@@ -2,10 +2,12 @@
 """Create or remove the release job's isolated Apple signing credentials."""
 import argparse
 import base64
+import json
 import os
 from pathlib import Path
 import re
 import secrets
+import shlex
 import shutil
 import subprocess
 
@@ -27,7 +29,11 @@ def main():
         raise SystemExit("This helper is only for GitHub Actions; use a Keychain profile locally")
     directory = Path(os.environ["RUNNER_TEMP"]).resolve() / "unsit-signing"
     keychain = directory / "release.keychain-db"
+    search_list = directory / "original-search-list.json"
     if args.action == "cleanup":
+        if search_list.exists():
+            previous = json.loads(search_list.read_text())
+            run("restoring the keychain search list", "security", "list-keychains", "-d", "user", "-s", *previous)
         if keychain.exists():
             result = subprocess.run(["security", "delete-keychain", str(keychain)], capture_output=True)
             if result.returncode:
@@ -44,6 +50,8 @@ def main():
     if not re.fullmatch(r"[A-Z0-9]{10}", team):
         raise SystemExit("APPLE_TEAM_ID must contain the certificate's 10-character team identifier")
     directory.mkdir(mode=0o700)
+    previous = shlex.split(run("reading the keychain search list", "security", "list-keychains", "-d", "user"))
+    search_list.write_text(json.dumps(previous))
     export = directory / "identity.p12"
     try:
         export.write_bytes(base64.b64decode("".join(os.environ["DEVELOPER_ID_P12_BASE64"].split()), validate=True))
@@ -59,10 +67,22 @@ def main():
     export.unlink()
     run("granting signing-tool access", "security", "set-key-partition-list", "-S", "apple-tool:,apple:",
         "-s", "-k", password, str(keychain))
+    # --keychain restricts identity selection but does not make an isolated
+    # keychain available to every part of codesign's private-key lookup.
+    run("adding the signing keychain to the search list", "security", "list-keychains", "-d", "user", "-s",
+        str(keychain), *previous)
     listing = run("checking Developer ID", "security", "find-identity", "-v", "-p", "codesigning", str(keychain))
     matches = re.findall(r'\d+\)\s+([A-Fa-f0-9]{40}) "Developer ID Application: [^"\n]+ \(' + re.escape(team) + r'\)"', listing)
     if len(matches) != 1:
         raise SystemExit("The export must contain one usable Developer ID Application identity for APPLE_TEAM_ID")
+    # Finding an identity alone does not prove that codesign can use its key.
+    probe = directory / "signing-probe"
+    shutil.copyfile("/usr/bin/true", probe)
+    probe.chmod(0o700)
+    run("checking signing-key access", "codesign", "--force", "--sign", matches[0], "--timestamp",
+        "--options", "runtime", "--keychain", str(keychain), str(probe))
+    run("verifying the signing probe", "codesign", "--verify", "--strict", str(probe))
+    probe.unlink()
     profile = "unsit-release"
     run("validating notarization credentials", "xcrun", "notarytool", "store-credentials", profile,
         "--keychain", str(keychain), "--apple-id", os.environ["NOTARY_APPLE_ID"],

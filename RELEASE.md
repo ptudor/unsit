@@ -178,9 +178,11 @@ gh secret list --repo ptudor/unsit --env release
 ```
 
 `scripts/ci-signing.py` imports the certificate into an isolated temporary
-keychain, selects a Developer ID identity for the specified team, and stores a
-validated notarization profile there. An `always()` cleanup step deletes that
-keychain and temporary credential files. Secrets are used only in the release
+keychain, adds it to the runner's keychain search list, selects a Developer ID
+identity for the specified team, and verifies that it can actually sign a probe.
+It then stores a validated notarization profile there. An `always()` cleanup
+step restores the original search list and deletes the temporary keychain and
+credential files. Secrets are used only in the release
 packaging jobs, after ordinary CI and the history scan pass. Missing credentials
 stop the release; there is no fallback to an ad hoc public installer. See
 [GitHub's macOS signing guidance](https://docs.github.com/en/actions/how-tos/deploy/deploy-to-third-party-platforms/sign-xcode-applications).
@@ -234,8 +236,8 @@ record minimum-platform testing separately in `docs/verification.md`.
 ## Tag and publish
 
 Check the clean tree, version, signing secret names, and intended commit before
-tagging. Confirm that the tag does not already exist locally or on GitHub. Never
-move a published version tag or overwrite its assets.
+tagging. Confirm that the tag does not already exist locally or on GitHub. Once
+a version has been released, never move its tag or overwrite its assets.
 
 For the first release:
 
@@ -348,10 +350,23 @@ download, or invalid manifest must never be reported as a successful upgrade.
 
 ## Failures and reruns
 
+An initial candidate that fails before any release assets are published can be
+corrected before first publication. Retain the failed run URL and source commit,
+confirm that no release exists and every old job has stopped, and record the
+remote tag object's ID. Commit and test the fix before updating that candidate
+tag. Protect the update with an explicit
+`--force-with-lease=refs/tags/TAG:OLD_TAG_OBJECT_ID` so another maintainer's change
+cannot be overwritten. A version that already has published assets requires a
+new version instead.
+
 - **CI failure:** inspect the failed job, fix the source, commit, and rerun on
   the new commit before choosing a release tag.
 - **Missing signing credentials:** configure the `release` environment; keep
   the release unpublished. Never substitute Apple Development or ad hoc signing.
+- **Identity found but signing fails:** check that the temporary keychain is
+  unlocked, has signing-tool access, and is in the user's keychain search list.
+  `codesign --keychain` alone is insufficient. The setup helper signs and verifies
+  a probe before building, and cleanup restores the previous search list.
 - **Notary rejection or timeout:** use the recorded submission ID with
   `xcrun notarytool info` and `log`. A timeout does not cancel Apple's processing.
   Local logs remain under `.build/notary-logs`; do not publish raw account logs.
