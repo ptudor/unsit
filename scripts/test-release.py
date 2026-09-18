@@ -153,18 +153,22 @@ class ReleaseChecks(unittest.TestCase):
         def bundle(languages):
             stream = io.BytesIO()
             with zipfile.ZipFile(stream, 'w') as archive:
-                for language, tables in languages.items():
-                    for table in tables:
-                        archive.writestr('Unsit.app/Contents/Resources/' + language + '.lproj/' + table + '.strings', b'data')
+                for language, files in languages.items():
+                    archive.writestr('Unsit.app/Contents/Resources/' + language + '.lproj/', b'')
+                    for name in files:
+                        archive.writestr('Unsit.app/Contents/Resources/' + language + '.lproj/' + name, b'data')
             return zipfile.ZipFile(stream)
-        tables = ['Extraction', 'InfoPlist', 'Menus', 'Updates']
+        tables = [name + '.strings' for name in ('Extraction', 'InfoPlist', 'Menus', 'Updates')]
         info = {'CFBundleDevelopmentRegion': 'en'}
-        verify.check_localizations(bundle({'en': tables, 'pt-BR': tables}), info)
-        for languages in [{}, {'fr': tables}, {'en': tables, 'fr': tables[:3]}]:
+        verify.check_localizations(bundle({'en': tables, 'pt-BR': tables + ['Extraction.stringsdict']}), info)
+        for languages in [{}, {'fr': tables}, {'en': tables, 'fr': tables[:3]}, {'en': tables, 'zh': []},
+                          {'en': tables, 'zh': ['Extraction.stringsdict']}]:
             with self.assertRaises(ValueError):
                 verify.check_localizations(bundle(languages), info)
         with self.assertRaises(ValueError):
             verify.check_localizations(bundle({'en': tables}), {})
+        with self.assertRaisesRegex(ValueError, r'fr has Extraction, InfoPlist, Menus; zh has none'):
+            verify.check_localizations(bundle({'en': tables, 'fr': tables[:3], 'zh': ['Extraction.stringsdict']}), info)
 
     def test_zip_rejects_symlinks_before_extraction(self):
         stream = io.BytesIO()

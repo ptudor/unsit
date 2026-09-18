@@ -63,17 +63,28 @@ def check_zip_paths(archive):
         names.add(entry.filename)
 
 
+STRING_TABLES = {"Extraction", "InfoPlist", "Menus", "Updates"}
+
+
 def check_localizations(archive, info):
-    """Every bundled language, the development language included, carries every string table."""
-    pattern = re.compile(r"Unsit\.app/Contents/Resources/([A-Za-z0-9_-]+)\.lproj/([A-Za-z]+)\.strings")
+    """Every bundled language, the development language included, carries every string table.
+
+    A language folder holding only a plural dictionary or none of the tables still
+    makes macOS offer that language, so every .lproj entry counts as a language.
+    """
+    pattern = re.compile(r"Unsit\.app/Contents/Resources/([A-Za-z0-9_-]+)\.lproj/([^/]*)")
     tables = {}
     for name in archive.namelist():
         match = pattern.fullmatch(name)
         if match:
-            tables.setdefault(match.group(1), set()).add(match.group(2))
+            found = tables.setdefault(match.group(1), set())
+            table = re.fullmatch(r"([A-Za-z]+)\.strings", match.group(2))
+            if table:
+                found.add(table.group(1))
     require(info.get("CFBundleDevelopmentRegion") in tables, "Missing string tables for the development language")
-    require(all(found == {"Extraction", "InfoPlist", "Menus", "Updates"} for found in tables.values()),
-            "A bundled language lacks some of its string tables")
+    incomplete = {language: found for language, found in tables.items() if found != STRING_TABLES}
+    require(not incomplete, "A bundled language lacks some of its string tables: " + "; ".join(
+        language + " has " + (", ".join(sorted(found)) or "none") for language, found in sorted(incomplete.items())))
 
 
 def command(*args):
