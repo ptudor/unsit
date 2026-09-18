@@ -149,6 +149,20 @@ class ReleaseChecks(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     verify.check_zip_paths(archive)
 
+    def test_development_language_table_holds_every_key_but_plural_rules(self):
+        catalog = {'sourceLanguage': 'en', 'strings': {
+            'Ready': {'comment': 'Status.'},
+            'Details': {'comment': 'Button.', 'localizations': {'fr': {'stringUnit': {'value': 'Détails'}}}},
+            'NSHumanReadableCopyright': {'localizations': {'en': {'stringUnit': {'value': 'Copyright 2026'}}}},
+            'Extracted %lld files': {'localizations': {'en': {'variations': {'plural': {
+                'one': {'stringUnit': {'value': 'Extracted %lld file'}}, 'other': {'stringUnit': {'value': 'Extracted %lld files'}}}}}}}}}
+        self.assertEqual(package.source_table(catalog, 'en'),
+                         ({'Ready': 'Ready', 'Details': 'Details', 'NSHumanReadableCopyright': 'Copyright 2026'}, True))
+        del catalog['strings']['Extracted %lld files']
+        self.assertEqual(package.source_table(catalog, 'en')[1], False)
+        with self.assertRaises(ValueError):
+            package.source_table(catalog, 'fr')
+
     def test_zip_requires_every_string_table_in_every_language(self):
         def bundle(languages):
             stream = io.BytesIO()

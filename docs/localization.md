@@ -43,7 +43,8 @@ the catalog entry; otherwise the next pull brings it back.
 Nothing extracts keys from the source, and Xcode never edits these files: they
 sit outside every SwiftPM target, and `swift build` would only copy a catalog
 without compiling it. `scripts/package.py` compiles each one with
-`xcstringstool` into `<language>.lproj` tables inside the app, and
+`xcstringstool` into `<language>.lproj` tables inside the app, writes the English
+tables itself so that they do not vary with the Xcode that built the app, and
 `scripts/verify-release.py` requires every bundled language to carry every table.
 
 ## Translations

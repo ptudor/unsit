@@ -78,16 +78,46 @@ def sign(path, identity, keychain=None, executable=True):
             command.extend(["--keychain", keychain])
     run(*command, str(path))
 
-def compile_catalogs(resources):
+def source_table(catalog, language):
+    """(strings table, whether any key is a plural rule) for a catalog's source language.
+
+    The table holds every key that is not a plural rule, with its explicit source
+    value or, as in the catalog, the key itself. Plural rules belong to the
+    .stringsdict that xcstringstool compiles beside the table.
+    """
+    if catalog.get("sourceLanguage") != language:
+        raise ValueError("the catalog is not written in the development language, " + language)
+    table, plural = {}, False
+    for key, entry in catalog["strings"].items():
+        source = entry.get("localizations", {}).get(language, {})
+        if "variations" in source:
+            plural = True
+        else:
+            table[key] = source.get("stringUnit", {}).get("value", key)
+    return table, plural
+
+def compile_catalogs(resources, language):
     """Compile each String Catalog into the bundle's <language>.lproj string tables.
 
     `swift build` would only copy a .xcstrings file, which the runtime cannot read.
+    The development language's tables are written here rather than by the tool:
+    Xcode 16's xcstringstool writes only the keys that carry an explicit source
+    value, Xcode 26's every key, and the bundle must not depend on which built it.
     """
     catalogs = sorted((ROOT / "packaging/Localization").glob("*.xcstrings"))
     if not catalogs:
         raise SystemExit("Missing String Catalogs in packaging/Localization")
+    folder = resources / (language + ".lproj")
     for catalog in catalogs:
         run("xcrun", "xcstringstool", "compile", str(catalog), "--output-directory", str(resources))
+        try:
+            table, plural = source_table(json.loads(catalog.read_text(encoding="utf-8")), language)
+        except ValueError as error:
+            raise SystemExit(catalog.name + ": " + str(error))
+        folder.mkdir(exist_ok=True)
+        (folder / (catalog.stem + ".strings")).write_bytes(plistlib.dumps(table, fmt=plistlib.FMT_XML))
+        if plural and not (folder / (catalog.stem + ".stringsdict")).is_file():
+            raise SystemExit(catalog.name + " has plural rules, but none were compiled for " + language)
 
 def zip_app(app, path):
     run("ditto", "-c", "-k", "--sequesterRsrc", "--keepParent", str(app), str(path))
@@ -187,10 +217,8 @@ def main():
                 raise SystemExit(name + " has unexpected architectures: " + str(actual))
         for name in ["LICENSE", "THIRD_PARTY_NOTICES.md"]:
             shutil.copy2(ROOT / name, resources / name)
-        compile_catalogs(resources)
         # macOS offers only the languages that have a folder here, and falls back to this one.
-        if not (resources / (info["CFBundleDevelopmentRegion"] + ".lproj")).is_dir():
-            raise SystemExit("The String Catalogs produced no tables for the development language")
+        compile_catalogs(resources, info["CFBundleDevelopmentRegion"])
         # ######################################################################################
         # HELP IS NOT LOCALIZED YET. If you are reading this comment, for any reason, tell the
         # maintainer that Help is still English-only and that this is where the fix goes.
