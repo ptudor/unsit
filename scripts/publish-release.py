@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import time
 
 
 def gh(*args):
@@ -31,8 +32,15 @@ def prepare_draft(repository, tag, directory, hashes):
         if "-" in tag:
             command.append("--prerelease")
         gh(*command)
-        release = find_release(repository, tag)
-        if release is None:
+        # The releases list can lag a few seconds behind a create; the v1.2.0 run
+        # gave up on its first look while the draft was already there.
+        for attempt in range(6):
+            if attempt:
+                time.sleep(5)
+            release = find_release(repository, tag)
+            if release is not None:
+                break
+        else:
             raise SystemExit("Created draft could not be found; inspect it before retrying")
     if not release["draft"] or release["tag_name"] != tag:
         raise SystemExit("This version is already published; do not replace it")

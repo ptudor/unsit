@@ -24,15 +24,19 @@ publish = module("publish_release", "publish-release.py")
 
 class DraftAPI:
     """A draft is visible to listing/ID lookups, never the published-tag API."""
-    def __init__(self, release=None):
+    def __init__(self, release=None, listing_lag=0):
         self.release = release
         self.created = 0
         self.uploaded = []
+        self.listed = 0
+        self.listing_lag = listing_lag  # listings after a create that do not show the draft yet
         self.hashes = {"app.dmg": "a" * 64, "checksums.txt": "b" * 64}
 
     def call(self, *args):
         if args[:2] == ("api", "repos/example/unsit/releases?per_page=100"):
-            return json.dumps([[{"tag_name": "v0.9.0"}], [self.release] if self.release else []])
+            self.listed += 1
+            visible = self.release if self.release and (not self.created or self.listed > self.listing_lag) else None
+            return json.dumps([[{"tag_name": "v0.9.0"}], [visible] if visible else []])
         if args[:2] == ("api", "repos/example/unsit/releases/42"):
             return json.dumps(self.release)
         if args[:2] == ("release", "create"):
@@ -47,8 +51,9 @@ class DraftAPI:
         raise AssertionError("Unexpected API access: " + repr(args))
 
     def prepare(self):
-        with patch.object(publish, "gh", side_effect=self.call):
+        with patch.object(publish, "gh", side_effect=self.call), patch.object(publish.time, "sleep") as sleep:
             publish.prepare_draft("example/unsit", "v1.0.0", Path("dist"), self.hashes)
+            return sleep.call_count
 
 
 class ReleaseChecks(unittest.TestCase):
@@ -58,6 +63,15 @@ class ReleaseChecks(unittest.TestCase):
         self.assertEqual(api.created, 1)
         self.assertEqual(set(api.uploaded), api.hashes.keys())
         self.assertTrue(api.release["draft"])
+
+    def test_waits_for_a_created_draft_to_appear_in_the_listing(self):
+        api = DraftAPI(listing_lag=3)
+        self.assertEqual(api.prepare(), 2)
+        self.assertEqual((api.created, set(api.uploaded)), (1, api.hashes.keys()))
+        api = DraftAPI(listing_lag=99)
+        with self.assertRaisesRegex(SystemExit, "Created draft could not be found"):
+            api.prepare()
+        self.assertEqual((api.created, api.listed, api.uploaded), (1, 7, []))
 
     def test_resumes_paginated_draft_without_replacing_matching_assets(self):
         api = DraftAPI({"id": 42, "tag_name": "v1.0.0", "draft": True,

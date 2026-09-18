@@ -380,6 +380,10 @@ new version instead.
   releases only. The publisher finds drafts in the paginated releases list and
   verifies uploaded assets using the numeric release ID. It resumes matching
   draft assets, rejects changed bytes, and refuses to modify published releases.
+  The list can lag a few seconds behind a create; the publisher waits for the
+  new draft, and if it still reports "Created draft could not be found", list
+  the drafts, confirm one empty draft carries the tag, and rerun the failed
+  jobs, which resume it.
   See [GitHub's release API](https://docs.github.com/en/rest/releases/releases).
 - **Failure after publication:** inspect the public assets and updater error.
   For changed code or bytes, issue a new version. The updater rejects downgrades
