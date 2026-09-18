@@ -3,6 +3,7 @@
 *.py text eol=lf
 *.yml text eol=lf
 *.md text eol=lf
+*.xcstrings text eol=lf
 *.sit binary
 *.png binary
 *.icns binary

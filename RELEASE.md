@@ -204,6 +204,7 @@ stop the release; there is no fallback to an ad hoc public installer. See
 swift test
 make check
 python3 scripts/test-release.py
+python3 scripts/test-localization.py
 python3 scripts/package.py --arch universal
 open dist/Unsit.app
 ```

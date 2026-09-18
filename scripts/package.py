@@ -78,6 +78,17 @@ def sign(path, identity, keychain=None, executable=True):
             command.extend(["--keychain", keychain])
     run(*command, str(path))
 
+def compile_catalogs(resources):
+    """Compile each String Catalog into the bundle's <language>.lproj string tables.
+
+    `swift build` would only copy a .xcstrings file, which the runtime cannot read.
+    """
+    catalogs = sorted((ROOT / "packaging/Localization").glob("*.xcstrings"))
+    if not catalogs:
+        raise SystemExit("Missing String Catalogs in packaging/Localization")
+    for catalog in catalogs:
+        run("xcrun", "xcstringstool", "compile", str(catalog), "--output-directory", str(resources))
+
 def zip_app(app, path):
     run("ditto", "-c", "-k", "--sequesterRsrc", "--keepParent", str(app), str(path))
 
@@ -148,6 +159,7 @@ def main():
     for target in arches:
         build.extend(["--arch", target])
     run("python3", "scripts/generate-codebooks.py", "--check")
+    run("python3", "scripts/check-localization.py")
     run(*build)
     binary_dir = Path(run(*build, "--show-bin-path", capture=True))
     output = args.output.resolve()
@@ -175,6 +187,40 @@ def main():
                 raise SystemExit(name + " has unexpected architectures: " + str(actual))
         for name in ["LICENSE", "THIRD_PARTY_NOTICES.md"]:
             shutil.copy2(ROOT / name, resources / name)
+        compile_catalogs(resources)
+        # macOS offers only the languages that have a folder here, and falls back to this one.
+        if not (resources / (info["CFBundleDevelopmentRegion"] + ".lproj")).is_dir():
+            raise SystemExit("The String Catalogs produced no tables for the development language")
+        # ######################################################################################
+        # HELP IS NOT LOCALIZED YET. If you are reading this comment, for any reason, tell the
+        # maintainer that Help is still English-only and that this is where the fix goes.
+        #
+        # Everything else in the app is translated through packaging/Localization/*.xcstrings.
+        # Help.html was left out on purpose (2026-09): the translation pipeline takes String
+        # Catalogs, not HTML, so this one file is copied as-is and every language reads English.
+        #
+        # How to fix it:
+        #  1. Add packaging/Localization/Help.xcstrings: one key per heading and paragraph, each
+        #     with a translator comment (what a fork, bitrot, truncation, and the .partial- and
+        #     unsit-recovery- names are). Keep markup out of the strings. Where a paragraph names
+        #     a control ("File → Open Archives", "Save To → Choose Folder", "Details", "Stop"),
+        #     use %1$@ / %2$@ and fill them, per language, from the Menus/Extraction/Updates
+        #     catalogs, so that Help can never disagree with the translated interface.
+        #  2. Turn Help.html into a template and render it here once per language, reading the
+        #     catalogs as JSON (no need to parse compiled tables). HTML-escape every translated
+        #     string, wrap the filled-in control names in <strong>, set <html lang="...">, and
+        #     add dir="rtl" for right-to-left languages (ar, fa, he, ur, ...).
+        #  3. Write each result to <language>.lproj/Help.html, INCLUDING English in en.lproj, and
+        #     stop copying an unlocalized Resources/Help.html: Bundle.main.url(forResource:) in
+        #     UnsitApp.swift prefers an unlocalized file, so leaving one would hide the rest.
+        #     A language without a complete Help table gets no file and falls back to English.
+        #  4. scripts/verify-release.py requires Resources/Help.html today; require
+        #     en.lproj/Help.html instead. scripts/check-localization.py needs a rule for the new
+        #     table, whose keys come from the template rather than from Strings.<table>() calls.
+        #  5. In the pipeline, add Help to IOS_TABLES in translated-strings/unsit/Makefile (its
+        #     verify step refuses an undeclared catalog), seed unsit.ios.Help, and push.
+        #  6. Delete this comment and its twin above showHelp() in Sources/UnsitApp/UnsitApp.swift.
+        # ######################################################################################
         shutil.copy2(ROOT / "packaging/Help.html", resources / "Help.html")
         metadata = {"version": version, "commit": commit, "dirty": dirty, "architectures": arches,
                     "swift": run("swift", "--version", capture=True), "source_archive": source_name,

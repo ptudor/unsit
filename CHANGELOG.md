@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.2.0
+
+- Translate the app into 83 additional languages and regional variants, from
+  Afrikaans to Zulu, including Arabic, Chinese (Simplified and Traditional),
+  French, German, Hindi, Japanese, Korean, Portuguese, Russian, and Spanish.
+  macOS picks the language from System Settings; the CLI, the Details sheet,
+  the `(extracted)` folder suffix, and Help stay English.
+- Prepare the app for translation: route every interface string, menu, alert,
+  status, and update error through String Catalogs with translator comments, and
+  give counts real plural forms instead of English-only "file/files" wording.
+- Compile the catalogs into the app bundle, declare English as the development
+  language, and localize the Finder file kind and copyright line.
+- Add `scripts/check-localization.py` to `make check` and CI, and require every
+  bundled language to carry every string table during release verification.
+- Rename the update sheet's "Check" menu to "Check frequency".
+
+See [release notes](docs/release-notes/v1.2.0.md) and
+[localization](docs/localization.md).
+
 ## 1.0.0
 
 - Add a native macOS app with drag-and-drop, multiple-archive queues, destination

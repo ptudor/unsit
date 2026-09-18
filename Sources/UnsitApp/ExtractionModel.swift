@@ -16,13 +16,34 @@ struct ArchiveJob: Identifiable {
     var status: String {
         if let report = report, state != .stopped { return report.headline }
         switch state {
-        case .queued: return "Waiting"
-        case .extracting: return "Extracting…"
-        case .complete: return "Ready"
-        case .warning: return "Recovered with warnings"
-        case .failed: return "Couldn’t extract"
-        case .stopped: return "Stopped"
+        case .queued: return Strings.extraction("Waiting")
+        case .extracting: return Strings.extraction("Extracting…")
+        case .complete: return Strings.extraction("Ready")
+        case .warning: return Strings.extraction("Recovered with warnings")
+        case .failed: return Strings.extraction("Couldn’t extract")
+        case .stopped: return Strings.extraction("Stopped")
         }
+    }
+}
+
+/// How the app words a report. The report itself is the CLI's language-neutral
+/// JSON contract; each count is a separate string so that every language can
+/// choose its own plural form for it.
+extension ExtractionReport {
+    var headline: String {
+        if damageDetected {
+            return recoveredFiles > 0
+                ? Strings.extraction("Unsit recovered %lld files despite archive damage", recoveredFiles)
+                : Strings.extraction("Archive damage detected; no files recovered")
+        }
+        if status != 0 && recoveredFiles == 0 { return Strings.extraction("Couldn’t extract any files") }
+        return status == 0 ? Strings.extraction("Extracted %lld files", recoveredFiles)
+                           : Strings.extraction("Saved %lld files with warnings", recoveredFiles)
+    }
+
+    var fileSummary: String {
+        [Strings.extraction("%lld complete", completeFiles), Strings.extraction("%lld partial", partialFiles),
+         Strings.extraction("%lld not saved", failedFiles)].joined(separator: " · ")
     }
 }
 
@@ -43,7 +64,7 @@ final class ExtractionModel: ObservableObject {
 
     func chooseArchives() {
         let panel = NSOpenPanel()
-        panel.title = "Open classic StuffIt archives"
+        panel.title = Strings.extraction("Open classic StuffIt archives")
         panel.allowedFileTypes = ["sit"]
         panel.allowsMultipleSelection = true
         panel.canChooseDirectories = false
@@ -52,8 +73,8 @@ final class ExtractionModel: ObservableObject {
 
     func chooseDestination() {
         let panel = NSOpenPanel()
-        panel.title = "Save extracted files in"
-        panel.prompt = "Choose Folder"
+        panel.title = Strings.extraction("Save extracted files in")
+        panel.prompt = Strings.extraction("Choose Folder")
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.canCreateDirectories = true
@@ -63,7 +84,7 @@ final class ExtractionModel: ObservableObject {
     func enqueue(_ urls: [URL]) {
         for url in urls {
             guard url.isFileURL, url.pathExtension.lowercased() == "sit" else {
-                message = AppMessage(text: "Choose a classic StuffIt (.sit) archive. Other archive formats, including .sitx, aren’t supported.")
+                message = AppMessage(text: Strings.extraction("Choose a classic StuffIt (.sit) archive. Other archive formats, including .sitx, aren’t supported."))
                 continue
             }
             jobs.append(ArchiveJob(archive: url, destination: destination ?? url.deletingLastPathComponent()))

@@ -9,7 +9,11 @@ public final class AppUpdateController: ObservableObject {
         case sixHours = 21_600, daily = 86_400, weekly = 604_800
         public var id: Int { rawValue }
         public var label: String {
-            switch self { case .sixHours: return "Every 6 hours"; case .daily: return "Daily"; case .weekly: return "Weekly" }
+            switch self {
+            case .sixHours: return Strings.updates("Every 6 hours")
+            case .daily: return Strings.updates("Daily")
+            case .weekly: return Strings.updates("Weekly")
+            }
         }
     }
     @Published public var automaticChecks: Bool {
@@ -18,7 +22,7 @@ public final class AppUpdateController: ObservableObject {
     @Published public var interval: Interval {
         didSet { defaults.set(interval.rawValue, forKey: "updates.interval") }
     }
-    @Published public private(set) var message = "Not checked yet."
+    @Published public private(set) var message = Strings.updates("Not checked yet.")
     @Published public private(set) var isChecking = false
     @Published public private(set) var isDownloading = false
     @Published public private(set) var available: AppUpdate?
@@ -47,10 +51,10 @@ public final class AppUpdateController: ObservableObject {
         self.init(defaults: .standard, current: ReleaseVersion(version) ?? ReleaseVersion("0.0.0")!,
                   system: ReleaseVersion("\(os.majorVersion).\(os.minorVersion).\(os.patchVersion)")!,
                   automaticByDefault: automaticByDefault, fetch: { current, highest in
-            guard let client = client else { throw UpdateError("The release repository is not configured.") }
+            guard let client = client else { throw UpdateError(Strings.updates("The release repository is not configured.")) }
             return try await client.latest(after: current, architecture: architecture, highestSeen: highest)
         }, download: { update in
-            guard let client = client else { throw UpdateError("The release repository is not configured.") }
+            guard let client = client else { throw UpdateError(Strings.updates("The release repository is not configured.")) }
             return try await client.download(update, into: directory)
         })
     }
@@ -82,7 +86,7 @@ public final class AppUpdateController: ObservableObject {
         isChecking = true
         downloaded = nil
         defaults.set(now(), forKey: "updates.lastAttempt")
-        message = "Checking for updates…"
+        message = Strings.updates("Checking for updates…")
         defer { isChecking = false }
         do {
             let highest = defaults.string(forKey: "updates.highestVersion").flatMap(ReleaseVersion.init)
@@ -94,30 +98,31 @@ public final class AppUpdateController: ObservableObject {
                 }
                 requiresNewerOS = system < update.minimumSystemVersion
                 message = requiresNewerOS
-                    ? "Unsit \(update.version) is available and requires macOS \(update.minimumSystemVersion) or later."
-                    : "Unsit \(update.version) is available."
-            } else { message = "Unsit is up to date." }
+                    ? Strings.updates("Unsit %1$@ is available and requires macOS %2$@ or later.",
+                                      update.version.description, update.minimumSystemVersion.description)
+                    : Strings.updates("Unsit %@ is available.", update.version.description)
+            } else { message = Strings.updates("Unsit is up to date.") }
             lastChecked = now()
             defaults.set(lastChecked, forKey: "updates.lastCheck")
         } catch {
             available = nil; requiresNewerOS = false
-            message = "Update check failed: " + error.localizedDescription
+            message = Strings.updates("Update check failed: %@", error.localizedDescription)
         }
     }
 
     public func downloadUpdate() async -> URL? {
         guard !isDownloading, !isChecking, !requiresNewerOS, let update = available else { return nil }
         isDownloading = true; downloaded = nil
-        message = "Downloading Unsit \(update.version)…"
+        message = Strings.updates("Downloading Unsit %@…", update.version.description)
         defer { isDownloading = false }
         do {
             let url = try await download(update)
             downloaded = url
-            message = "Downloaded and verified. Quit Unsit, then drag the new app into Applications."
+            message = Strings.updates("Downloaded and verified. Quit Unsit, then drag the new app into Applications.")
             return url
         } catch {
             message = Task.isCancelled || error is CancellationError
-                ? "Update download cancelled." : "Update download failed: " + error.localizedDescription
+                ? Strings.updates("Update download cancelled.") : Strings.updates("Update download failed: %@", error.localizedDescription)
         }
         return nil
     }

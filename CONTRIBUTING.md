@@ -22,6 +22,10 @@ either interface. Run tests against the packaged helper for a release:
 UNSIT_TEST_BINARY="$PWD/dist/Unsit.app/Contents/MacOS/unsit" swift test --filter RegressionTests
 ```
 
+Every string a user can see goes through `Strings.<table>(...)` and has an entry
+with a translator comment in `packaging/Localization`; `make check` enforces it.
+Read [localization](docs/localization.md) before adding or rewording app text.
+
 For decoder changes, update [the wire-format notes](docs/method-13.md), retain
 explicit expected bytes or hashes, and check both native forks. Numeric codebooks
 live in JSON; regenerate Swift with `python3 scripts/generate-codebooks.py` and

@@ -149,6 +149,23 @@ class ReleaseChecks(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     verify.check_zip_paths(archive)
 
+    def test_zip_requires_every_string_table_in_every_language(self):
+        def bundle(languages):
+            stream = io.BytesIO()
+            with zipfile.ZipFile(stream, 'w') as archive:
+                for language, tables in languages.items():
+                    for table in tables:
+                        archive.writestr('Unsit.app/Contents/Resources/' + language + '.lproj/' + table + '.strings', b'data')
+            return zipfile.ZipFile(stream)
+        tables = ['Extraction', 'InfoPlist', 'Menus', 'Updates']
+        info = {'CFBundleDevelopmentRegion': 'en'}
+        verify.check_localizations(bundle({'en': tables, 'pt-BR': tables}), info)
+        for languages in [{}, {'fr': tables}, {'en': tables, 'fr': tables[:3]}]:
+            with self.assertRaises(ValueError):
+                verify.check_localizations(bundle(languages), info)
+        with self.assertRaises(ValueError):
+            verify.check_localizations(bundle({'en': tables}), {})
+
     def test_zip_rejects_symlinks_before_extraction(self):
         stream = io.BytesIO()
         with zipfile.ZipFile(stream, 'w') as archive:

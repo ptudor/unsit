@@ -35,10 +35,10 @@ public final class ExtractionOperation: @unchecked Sendable {
         let alreadyStarted = started
         started = true
         lock.unlock()
-        guard !alreadyStarted else { throw Failure("This extraction has already started.") }
-        guard archive.isFileURL, destination.isFileURL else { throw Failure("Choose a local archive and folder.") }
+        guard !alreadyStarted else { throw Failure(Strings.extraction("This extraction has already started.")) }
+        guard archive.isFileURL, destination.isFileURL else { throw Failure(Strings.extraction("Choose a local archive and folder.")) }
         guard FileManager.default.isExecutableFile(atPath: executable.path) else {
-            throw Failure("The extractor is missing from this copy of Unsit. Reinstall the app.")
+            throw Failure(Strings.extraction("The extractor is missing from this copy of Unsit. Reinstall the app."))
         }
         let archive = try Self.canonicalURL(archive)
         let parent = try Self.canonicalURL(destination)
@@ -65,7 +65,7 @@ public final class ExtractionOperation: @unchecked Sendable {
         if cancelled {
             lock.unlock()
             _ = rmdir(output.path)
-            return ExtractionResult(output: nil, status: 1, cancelled: true, details: "Extraction stopped.", report: nil)
+            return ExtractionResult(output: nil, status: 1, cancelled: true, details: Strings.extraction("Extraction stopped."), report: nil)
         }
         process = task
         do { try task.run() }
@@ -87,14 +87,14 @@ public final class ExtractionOperation: @unchecked Sendable {
         let limit = 128 * 1024
         let data = try reader.read(upToCount: limit + 1) ?? Data()
         var details = String(decoding: data.prefix(limit), as: UTF8.self)
-        if data.count > limit { details += "\nFurther messages omitted.\n" }
+        if data.count > limit { details += "\n" + Strings.extraction("Further messages omitted.") + "\n" }
         let reportReader = try FileHandle(forReadingFrom: reportFile)
         defer { try? reportReader.close() }
         let reportData = try reportReader.read(upToCount: 64 * 1024) ?? Data()
         let decoded = try? JSONDecoder().decode(ExtractionReport.self, from: reportData)
         let report = decoded?.schemaVersion == 1 && decoded?.status == task.terminationStatus ? decoded : nil
-        if report == nil && !wasCancelled { details += "\nThe extractor did not return a valid recovery report.\n" }
-        if wasCancelled { details = "Extraction stopped. Files already recovered remain in the output folder.\n\n" + details }
+        if report == nil && !wasCancelled { details += "\n" + Strings.extraction("The extractor did not return a valid recovery report.") + "\n" }
+        if wasCancelled { details = Strings.extraction("Extraction stopped. Files already recovered remain in the output folder.") + "\n\n" + details }
         let empty = (try? FileManager.default.contentsOfDirectory(atPath: output.path).isEmpty) == true
         let failed = task.terminationStatus != 0 || wasCancelled || report == nil
         if failed && empty { _ = rmdir(output.path) }
@@ -103,6 +103,8 @@ public final class ExtractionOperation: @unchecked Sendable {
     }
 
     private static func reserveOutput(for archive: URL, in parent: URL) throws -> URL {
+        // The fallback name and the suffix are deliberately the same in every
+        // language, so output paths never depend on the language in use.
         var name = archive.deletingPathExtension().lastPathComponent
         while name.utf8.count > 180 { name.removeLast() }
         if name.isEmpty || name == "." || name == ".." { name = "Archive" }
@@ -110,16 +112,16 @@ public final class ExtractionOperation: @unchecked Sendable {
             let leaf = name + " (extracted)" + (suffix == 1 ? "" : " \(suffix)")
             let output = parent.appendingPathComponent(leaf, isDirectory: true)
             if mkdir(output.path, 0o755) == 0 { return output }
-            if errno != EEXIST { throw Failure("Cannot create an extraction folder here: " + String(cString: strerror(errno))) }
+            if errno != EEXIST { throw Failure(Strings.extraction("Cannot create an extraction folder here: %@", String(cString: strerror(errno)))) }
         }
-        throw Failure("There are too many extraction folders with this name. Choose another destination.")
+        throw Failure(Strings.extraction("There are too many extraction folders with this name. Choose another destination."))
     }
 
     private static func canonicalURL(_ url: URL) throws -> URL {
         // Foundation can abbreviate /private/var back to the /var symlink.
         // The CLI deliberately requires every output component to be real.
         guard let path = realpath(url.path, nil) else {
-            throw Failure("Cannot open this location: " + String(cString: strerror(errno)))
+            throw Failure(Strings.extraction("Cannot open this location: %@", String(cString: strerror(errno))))
         }
         defer { free(path) }
         return URL(fileURLWithPath: String(cString: path))

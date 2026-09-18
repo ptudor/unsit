@@ -24,19 +24,4 @@ public struct ExtractionReport: Codable, Sendable {
     public init() {}
     public var recoveredFiles: Int { completeFiles + partialFiles }
     public var damageDetected: Bool { damagedForks > 0 || archiveStructureDamaged }
-
-    public var headline: String {
-        let noun = recoveredFiles == 1 ? "file" : "files"
-        if damageDetected {
-            return recoveredFiles > 0
-                ? "Unsit recovered \(recoveredFiles) \(noun) despite archive damage"
-                : "Archive damage detected; no files recovered"
-        }
-        if status != 0 && recoveredFiles == 0 { return "Couldn’t extract any files" }
-        return status == 0 ? "Extracted \(recoveredFiles) \(noun)" : "Saved \(recoveredFiles) \(noun) with warnings"
-    }
-
-    public var fileSummary: String {
-        "\(completeFiles) complete · \(partialFiles) partial · \(failedFiles) not saved"
-    }
 }

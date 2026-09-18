@@ -63,6 +63,19 @@ def check_zip_paths(archive):
         names.add(entry.filename)
 
 
+def check_localizations(archive, info):
+    """Every bundled language, the development language included, carries every string table."""
+    pattern = re.compile(r"Unsit\.app/Contents/Resources/([A-Za-z0-9_-]+)\.lproj/([A-Za-z]+)\.strings")
+    tables = {}
+    for name in archive.namelist():
+        match = pattern.fullmatch(name)
+        if match:
+            tables.setdefault(match.group(1), set()).add(match.group(2))
+    require(info.get("CFBundleDevelopmentRegion") in tables, "Missing string tables for the development language")
+    require(all(found == {"Extraction", "InfoPlist", "Menus", "Updates"} for found in tables.values()),
+            "A bundled language lacks some of its string tables")
+
+
 def command(*args):
     result = subprocess.run(args, check=True, capture_output=True)
     return result.stdout
@@ -144,6 +157,7 @@ def verify(directory, version, arch, notarized=False, macos=False, team=None):
         info = plistlib.loads(read_zip(archive, "Unsit.app/Contents/Info.plist"))
         for name in ("LICENSE", "THIRD_PARTY_NOTICES.md", "Help.html"):
             require(bool(read_zip(archive, "Unsit.app/Contents/Resources/" + name)), "Missing bundled notices/help")
+        check_localizations(archive, info)
     require(metadata["version"] == version and metadata["architectures"] ==
             (["arm64", "x86_64"] if arch == "universal" else [arch]), "Incorrect build version or architecture")
     require(re.fullmatch(r"[0-9a-f]{40}", metadata["commit"]), "Missing source commit")

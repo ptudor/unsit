@@ -4,6 +4,10 @@ import SwiftUI
 import UniformTypeIdentifiers
 import UnsitDesktop
 
+/// The wordmark is the same in every language. Only running text that mentions
+/// it, such as "About Unsit", goes through the string catalogs.
+private let wordmark = "Unsit"
+
 @main
 @available(macOS 12.0, *)
 struct UnsitApplication {
@@ -65,7 +69,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if window == nil {
             let new = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 720, height: 600),
                                styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
-            new.title = "Unsit"
+            new.title = wordmark
             new.isReleasedWhenClosed = false
             new.contentView = NSHostingView(rootView: MainView(model: model, updates: updates))
             new.contentMinSize = NSSize(width: 580, height: 480)
@@ -88,6 +92,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         showMainWindow(); updates.isPresented = true
         Task { await updates.checkNow() }
     }
+    // HELP IS NOT LOCALIZED YET. This opens the single English Help.html in every
+    // language. How to fix it is written up in scripts/package.py, at the comment
+    // with this same heading. If you are reading this, mention it to the maintainer.
     @objc private func showHelp() {
         if let url = Bundle.main.url(forResource: "Help", withExtension: "html") { NSWorkspace.shared.open(url) }
     }
@@ -102,42 +109,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             let item = NSMenuItem(title: name, action: action, keyEquivalent: key)
             item.target = target; menu.addItem(item)
         }
-        let app = menu("Unsit")
-        item(app, "About Unsit", #selector(NSApplication.orderFrontStandardAboutPanel(_:)))
-        item(app, "Check for Updates…", #selector(checkUpdates), target: self)
+        let app = menu(wordmark)
+        item(app, Strings.menus("About Unsit"), #selector(NSApplication.orderFrontStandardAboutPanel(_:)))
+        item(app, Strings.menus("Check for Updates…"), #selector(checkUpdates), target: self)
         app.addItem(.separator())
-        let services = NSMenuItem(title: "Services", action: nil, keyEquivalent: "")
-        services.submenu = NSMenu(title: "Services"); app.addItem(services); NSApp.servicesMenu = services.submenu
+        let services = NSMenuItem(title: Strings.menus("Services"), action: nil, keyEquivalent: "")
+        services.submenu = NSMenu(title: services.title); app.addItem(services); NSApp.servicesMenu = services.submenu
         app.addItem(.separator())
-        item(app, "Hide Unsit", #selector(NSApplication.hide(_:)), "h")
-        item(app, "Show All", #selector(NSApplication.unhideAllApplications(_:)))
+        item(app, Strings.menus("Hide Unsit"), #selector(NSApplication.hide(_:)), "h")
+        item(app, Strings.menus("Show All"), #selector(NSApplication.unhideAllApplications(_:)))
         app.addItem(.separator())
-        item(app, "Quit Unsit", #selector(NSApplication.terminate(_:)), "q")
-        let file = menu("File")
-        item(file, "Open Archives…", #selector(openArchives), "o", target: self)
-        item(file, "Close Window", #selector(NSWindow.performClose(_:)), "w")
-        let edit = menu("Edit")
-        for (title, selector, key) in [("Cut", "cut:", "x"), ("Copy", "copy:", "c"), ("Paste", "paste:", "v"), ("Select All", "selectAll:", "a")] {
+        item(app, Strings.menus("Quit Unsit"), #selector(NSApplication.terminate(_:)), "q")
+        let file = menu(Strings.menus("File"))
+        item(file, Strings.menus("Open Archives…"), #selector(openArchives), "o", target: self)
+        item(file, Strings.menus("Close Window"), #selector(NSWindow.performClose(_:)), "w")
+        let edit = menu(Strings.menus("Edit"))
+        for (title, selector, key) in [(Strings.menus("Cut"), "cut:", "x"), (Strings.menus("Copy"), "copy:", "c"),
+                                       (Strings.menus("Paste"), "paste:", "v"), (Strings.menus("Select All"), "selectAll:", "a")] {
             item(edit, title, NSSelectorFromString(selector), key)
         }
-        let windows = menu("Window")
-        item(windows, "Show Unsit", #selector(showMainWindow(_:)), "0", target: self)
+        let windows = menu(Strings.menus("Window"))
+        item(windows, Strings.menus("Show Unsit"), #selector(showMainWindow(_:)), "0", target: self)
         windows.addItem(.separator())
-        item(windows, "Minimize", #selector(NSWindow.performMiniaturize(_:)), "m")
-        item(windows, "Zoom", #selector(NSWindow.performZoom(_:)))
+        item(windows, Strings.menus("Minimize"), #selector(NSWindow.performMiniaturize(_:)), "m")
+        item(windows, Strings.menus("Zoom"), #selector(NSWindow.performZoom(_:)))
         NSApp.windowsMenu = windows
-        let help = menu("Help")
-        item(help, "Unsit Help", #selector(showHelp), target: self)
+        let help = menu(Strings.menus("Help"))
+        item(help, Strings.menus("Unsit Help"), #selector(showHelp), target: self)
         NSApp.helpMenu = help
         NSApp.mainMenu = bar
     }
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard ExtractionModel.shared.isBusy else { return .terminateNow }
         let alert = NSAlert()
-        alert.messageText = "Stop extracting and quit?"
-        alert.informativeText = "Files already extracted will stay in their output folders."
-        alert.addButton(withTitle: "Keep Extracting")
-        alert.addButton(withTitle: "Stop and Quit")
+        alert.messageText = Strings.extraction("Stop extracting and quit?")
+        alert.informativeText = Strings.extraction("Files already extracted will stay in their output folders.")
+        alert.addButton(withTitle: Strings.extraction("Keep Extracting"))
+        alert.addButton(withTitle: Strings.extraction("Stop and Quit"))
         if alert.runModal() == .alertFirstButtonReturn { return .terminateCancel }
         ExtractionModel.shared.stop()
         return .terminateNow
@@ -154,16 +162,16 @@ struct ContentView: View {
             HStack(spacing: 14) {
                 Image(systemName: "archivebox.fill").font(.system(size: 36)).foregroundColor(.accentColor)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Unsit").font(.largeTitle).fontWeight(.semibold)
-                    Text("Bring your classic Mac archives back.").foregroundColor(.secondary)
+                    Text(verbatim: wordmark).font(.largeTitle).fontWeight(.semibold)
+                    Text(Strings.extraction("Bring your classic Mac archives back.")).foregroundColor(.secondary)
                 }
                 Spacer()
             }
             VStack(spacing: 10) {
                 Image(systemName: "arrow.down.doc").font(.system(size: 30, weight: .light)).foregroundColor(.accentColor)
-                Text("Drop StuffIt archives here").font(.title3).fontWeight(.medium)
-                Button("Choose Archives…", action: model.chooseArchives)
-                Text("Classic .sit archives")
+                Text(Strings.extraction("Drop StuffIt archives here")).font(.title3).fontWeight(.medium)
+                Button(Strings.extraction("Choose Archives…"), action: model.chooseArchives)
+                Text(Strings.extraction("Classic .sit archives"))
                     .font(.caption).foregroundColor(.secondary)
             }
             .frame(maxWidth: .infinity).padding(.vertical, 22)
@@ -173,20 +181,20 @@ struct ContentView: View {
             HStack {
                 Image(systemName: "folder").foregroundColor(.secondary)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(model.destination?.lastPathComponent ?? "Next to each archive").fontWeight(.medium)
-                    Text("Each archive gets a new folder.").font(.caption).foregroundColor(.secondary)
+                    Text(model.destination?.lastPathComponent ?? Strings.extraction("Next to each archive")).fontWeight(.medium)
+                    Text(Strings.extraction("Each archive gets a new folder.")).font(.caption).foregroundColor(.secondary)
                 }
-                .help(model.destination?.path ?? "Save alongside the original archive")
+                .help(model.destination?.path ?? Strings.extraction("Save alongside the original archive"))
                 Spacer()
-                Menu("Save To") {
-                    Button("Next to Each Archive") { model.destination = nil }
-                    Button("Choose Folder…", action: model.chooseDestination)
+                Menu(Strings.extraction("Save To")) {
+                    Button(Strings.extraction("Next to Each Archive")) { model.destination = nil }
+                    Button(Strings.extraction("Choose Folder…"), action: model.chooseDestination)
                 }.fixedSize()
             }
             Divider()
             if model.jobs.isEmpty {
                 Spacer(minLength: 0)
-                Text("Your archives stay intact. Recovered files appear here when they’re ready.")
+                Text(Strings.extraction("Your archives stay intact. Recovered files appear here when they’re ready."))
                     .foregroundColor(.secondary).font(.callout).frame(maxWidth: .infinity)
                 Spacer(minLength: 0)
             } else {
@@ -202,41 +210,41 @@ struct ContentView: View {
                                     if let report = job.report {
                                         Text(report.fileSummary).font(.caption).foregroundColor(.secondary)
                                         if report.damageDetected {
-                                            Text("Damage or possible bitrot was found in this archive.").font(.caption).foregroundColor(.orange)
+                                            Text(Strings.extraction("Damage or possible bitrot was found in this archive.")).font(.caption).foregroundColor(.orange)
                                         }
                                         if report.recoveredAfterDamage > 0 {
-                                            Text("\(report.recoveredAfterDamage) \(report.recoveredAfterDamage == 1 ? "file" : "files") found beyond damaged records; folder placement is uncertain.")
+                                            Text(Strings.extraction("%lld files found beyond damaged records; folder placement is uncertain.", report.recoveredAfterDamage))
                                                 .font(.caption).foregroundColor(.secondary)
                                         }
                                     }
                                 }
                                 Spacer()
-                                if !job.details.isEmpty { Button("Details") { detail = job } }
+                                if !job.details.isEmpty { Button(Strings.extraction("Details")) { detail = job } }
                                 if let output = job.output {
-                                    Button("Open Folder") { NSWorkspace.shared.open(output) }
+                                    Button(Strings.extraction("Open Folder")) { NSWorkspace.shared.open(output) }
                                 }
                             }.padding(10).background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(0.035)))
                         }
                     }
                 }
                 HStack {
-                    Button("Clear Finished", action: model.clearFinished)
+                    Button(Strings.extraction("Clear Finished"), action: model.clearFinished)
                     Spacer()
-                    if model.isBusy { Button("Stop", action: model.stop) }
+                    if model.isBusy { Button(Strings.extraction("Stop"), action: model.stop) }
                 }
             }
         }
         .padding(24)
-        .alert(item: $model.message) { Alert(title: Text("Unable to Open"), message: Text($0.text), dismissButton: .default(Text("OK"))) }
+        .alert(item: $model.message) { Alert(title: Text(Strings.extraction("Unable to Open")), message: Text($0.text), dismissButton: .default(Text(Strings.extraction("OK")))) }
         .sheet(item: $detail) { job in
             VStack(alignment: .leading, spacing: 16) {
                 Text(job.status).font(.title2)
                 Text(job.archive.lastPathComponent).foregroundColor(.secondary)
                 ScrollView { Text(job.details).font(.system(.caption, design: .monospaced)).frame(maxWidth: .infinity, alignment: .leading) }
                 HStack {
-                    Button("Copy Details") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(job.details, forType: .string) }
+                    Button(Strings.extraction("Copy Details")) { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(job.details, forType: .string) }
                     Spacer()
-                    Button("Done") { detail = nil }.keyboardShortcut(.defaultAction)
+                    Button(Strings.extraction("Done")) { detail = nil }.keyboardShortcut(.defaultAction)
                 }
             }.padding(24).frame(width: 580, height: 360)
         }

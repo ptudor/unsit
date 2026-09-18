@@ -14,5 +14,6 @@ universal:
 
 check:
 	python3 scripts/generate-codebooks.py --check
+	python3 scripts/check-localization.py
 	cd Tests/unsitTests/Fixtures && shasum -a 256 -c SHA256SUMS
 	git diff --check

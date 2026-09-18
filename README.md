@@ -140,7 +140,7 @@ swift run --skip-build UnsitApp
 
 [Contributing](CONTRIBUTING.md) · [Security reporting](SECURITY.md) ·
 [Container format](docs/format.md) · [Method 13](docs/method-13.md) ·
-[Changelog](CHANGELOG.md)
+[Localization](docs/localization.md) · [Changelog](CHANGELOG.md)
 
 ## License
 
