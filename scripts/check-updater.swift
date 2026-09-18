@@ -1,5 +1,5 @@
 // Copyright (c) 2026 Patrick Tudor. SPDX-License-Identifier: MIT
-// Compile with Sources/UnsitDesktop/AppUpdate.swift; see RELEASE.md.
+// Compile with Sources/UnsitDesktop/AppUpdate.swift and Strings.swift; see RELEASE.md.
 import Foundation
 
 @available(macOS 12.0, *)

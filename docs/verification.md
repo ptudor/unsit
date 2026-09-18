@@ -96,6 +96,16 @@ size validation, quarantine, and no newer update when already on 1.0.0. Since
 there was no previous public version, the probe supplied 0.0.0 to the real client
 as its starting version without changing the shipped app.
 
+The published **v1.2.0** source, `6dc8905`, passed all 60 tests, packaging, and
+packaged-helper checks natively on both architectures with the same runners and
+toolchain, plus the string-catalog checks and 15 Python release checks. Its
+notarized downloads, all 12 attestations, the quarantined app assessed by
+Gatekeeper and launched in French, and the real update client for both
+architectures passed locally. The bundle carries one complete set of string
+tables for every one of its 84 languages, which the release verifier requires.
+See the [v1.2.0 release record](release-records/v1.2.0.md), including the
+Xcode-dependent table layout and two release-run corrections it documents.
+
 Window restoration was checked in a separate app instance: three close/reopen
 cycles through **Window → Show Unsit**, reopening with **⌘0**, and restoration
 from a minimized window. The restore command remains enabled without a window.

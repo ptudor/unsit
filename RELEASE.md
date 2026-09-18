@@ -331,7 +331,7 @@ weakened validation is used:
 
 ```sh
 swiftc -parse-as-library Sources/UnsitDesktop/AppUpdate.swift \
-  scripts/check-updater.swift -o dist/check-updater
+  Sources/UnsitDesktop/Strings.swift scripts/check-updater.swift -o dist/check-updater
 dist/check-updater --version 1.0.0 --arch arm64 --directory dist/update-check
 dist/check-updater --version 1.0.0 --arch x86_64 --directory dist/update-check
 ```
@@ -397,6 +397,7 @@ platform results, notary submission receipts, asset checksums, and live updater
 result. GitHub retains the published receipts and attestations alongside the
 release; keep a separate backup of credentials and release evidence.
 
-Completed executions: [v1.0.0 release record](docs/release-records/v1.0.0.md),
-including native test results, Apple submission IDs, artifact hashes, provenance,
-live updater results, and corrections made before its first publication.
+Completed executions: the [v1.2.0](docs/release-records/v1.2.0.md) and
+[v1.0.0](docs/release-records/v1.0.0.md) release records, including native test
+results, Apple submission IDs, artifact hashes, provenance, live updater results,
+and the corrections each run needed.

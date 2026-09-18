@@ -149,7 +149,7 @@ jobs:
         env:
           RELEASE_VERSION: ${{ needs.version.outputs.version }}
         run: |
-          swiftc -parse-as-library Sources/UnsitDesktop/AppUpdate.swift scripts/check-updater.swift -o "$RUNNER_TEMP/check-updater"
+          swiftc -parse-as-library Sources/UnsitDesktop/AppUpdate.swift Sources/UnsitDesktop/Strings.swift scripts/check-updater.swift -o "$RUNNER_TEMP/check-updater"
           for arch in arm64 x86_64; do
             "$RUNNER_TEMP/check-updater" --version "$RELEASE_VERSION" --arch "$arch" \
               --directory "$RUNNER_TEMP/update-check" | tee "$RUNNER_TEMP/updater-$arch.log"

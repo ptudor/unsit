@@ -63,6 +63,8 @@ jobs:
           swift --version
       - name: Run native extraction and app-helper tests
         run: swift test
+      - name: Compile the release updater probe
+        run: swiftc -parse-as-library Sources/UnsitDesktop/AppUpdate.swift Sources/UnsitDesktop/Strings.swift scripts/check-updater.swift -o "$RUNNER_TEMP/check-updater"
       - name: Build app and release assets
         env:
           BUILD_ARCH: ${{ matrix.arch }}
